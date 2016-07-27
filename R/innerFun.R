@@ -3,30 +3,30 @@ buildSMB <- function(){
   TS <- getTS(RebDates,'EI000985')
   TSF <- gf_lcfs(TS,'F000002')
   TSF <- plyr::ddply(TSF,"date",transform,factorscore=ifelse(is.na(factorscore),median(factorscore,na.rm=TRUE),factorscore))
-  TSF <- plyr::ddply(TSF, ~ date, mutate, group = as.numeric(ggplot2::cut_number(factorscore,3)))
+  TSF <- plyr::ddply(TSF, ~ date, plyr::mutate, group = as.numeric(ggplot2::cut_number(factorscore,3)))
   tmp.TS1 <- TSF[TSF$group==1,c("date","stockID")]
-  tmp.TS1 <- plyr::ddply(tmp.TS1, ~ date, mutate, recnum = seq(1,length(date)))
+  tmp.TS1 <- plyr::ddply(tmp.TS1, ~ date, plyr::mutate, recnum = seq(1,length(date)))
   tmp.TS3 <- TSF[TSF$group==3,c("date","stockID")]
-  tmp.TS3 <- plyr::ddply(tmp.TS3, ~ date, mutate, recnum = seq(1,length(date)))
+  tmp.TS3 <- plyr::ddply(tmp.TS3, ~ date, plyr::mutate, recnum = seq(1,length(date)))
 
-  tmp <- plyr::ddply(tmp.TS1,~date,summarise,nstock=length(date))
+  tmp <- plyr::ddply(tmp.TS1,~date,plyr::summarise,nstock=length(date))
   tmp.date <- data.frame(date=getRebDates(min(TS$date),max(TS$date),rebFreq = 'day'))
   tmp.date$nstock <- tmp$nstock[findInterval(tmp.date$date,tmp$date)]
   tmp.date$datecor <- tmp$date[findInterval(tmp.date$date,tmp$date)]
   TS1 <- data.frame(datenew=rep(tmp.date$date,tmp.date$nstock),
                     date=rep(tmp.date$datecor,tmp.date$nstock))
-  TS1 <- plyr::ddply(TS1, ~ datenew, mutate, recnum = seq(1,length(datenew)))
+  TS1 <- plyr::ddply(TS1, ~ datenew, plyr::mutate, recnum = seq(1,length(datenew)))
   TS1 <- merge.x(TS1,tmp.TS1)
   TS1 <- TS1[,c("datenew","stockID")]
   colnames(TS1) <- c("date","stockID")
 
-  tmp <- plyr::ddply(tmp.TS3,~date,summarise,nstock=length(date))
+  tmp <- plyr::ddply(tmp.TS3,~date,plyr::summarise,nstock=length(date))
   tmp.date <- data.frame(date=getRebDates(min(TS$date),max(TS$date),rebFreq = 'day'))
   tmp.date$nstock <- tmp$nstock[findInterval(tmp.date$date,tmp$date)]
   tmp.date$datecor <- tmp$date[findInterval(tmp.date$date,tmp$date)]
   TS3 <- data.frame(datenew=rep(tmp.date$date,tmp.date$nstock),
                     date=rep(tmp.date$datecor,tmp.date$nstock))
-  TS3 <- plyr::ddply(TS3, ~ datenew, mutate, recnum = seq(1,length(datenew)))
+  TS3 <- plyr::ddply(TS3, ~ datenew, plyr::mutate, recnum = seq(1,length(datenew)))
   TS3 <- merge.x(TS3,tmp.TS3)
   TS3 <- TS3[,c("datenew","stockID")]
   colnames(TS3) <- c("date","stockID")
@@ -43,10 +43,10 @@ buildSMB <- function(){
   TSR3 <- merge.x(TS3,re)
   R1 <- TSR1[,c("date","stockRtn")]
   R1 <- R1[!is.na(R1$stockRtn),]
-  R1 <- plyr::ddply(R1,~date,summarise,dailtRtn=mean(stockRtn,na.rm = T))
+  R1 <- plyr::ddply(R1,~date,plyr::summarise,dailtRtn=mean(stockRtn,na.rm = T))
   R3 <- TSR3[,c("date","stockRtn")]
   R3 <- R3[!is.na(R3$stockRtn),]
-  R3 <- plyr::ddply(R3,~date,summarise,dailtRtn=mean(stockRtn,na.rm = T))
+  R3 <- plyr::ddply(R3,~date,plyr::summarise,dailtRtn=mean(stockRtn,na.rm = T))
 
   rtn <- merge(R1,R3,by='date')
   colnames(rtn) <- c('date','S','B')
@@ -73,30 +73,30 @@ buildHML <- function(){
   TS <- getTS(RebDates,'EI000985')
   TSF <- gf_lcfs(TS,'F000006')
   TSF <- plyr::ddply(TSF,"date",transform,factorscore=ifelse(is.na(factorscore),median(factorscore,na.rm=TRUE),factorscore))
-  TSF <- plyr::ddply(TSF, ~ date, mutate, group = as.numeric(ggplot2::cut_number(factorscore,3)))
+  TSF <- plyr::ddply(TSF, ~ date, plyr::mutate, group = as.numeric(ggplot2::cut_number(factorscore,3)))
   tmp.TS1 <- TSF[TSF$group==1,c("date","stockID")]
-  tmp.TS1 <- plyr::ddply(tmp.TS1, ~ date, mutate, recnum = seq(1,length(date)))
+  tmp.TS1 <- plyr::ddply(tmp.TS1, ~ date, plyr::mutate, recnum = seq(1,length(date)))
   tmp.TS3 <- TSF[TSF$group==3,c("date","stockID")]
-  tmp.TS3 <- plyr::ddply(tmp.TS3, ~ date, mutate, recnum = seq(1,length(date)))
+  tmp.TS3 <- plyr::ddply(tmp.TS3, ~ date, plyr::mutate, recnum = seq(1,length(date)))
 
-  tmp <- plyr::ddply(tmp.TS1,~date,summarise,nstock=length(date))
+  tmp <- plyr::ddply(tmp.TS1,~date,plyr::summarise,nstock=length(date))
   tmp.date <- data.frame(date=getRebDates(min(TS$date),max(TS$date),rebFreq = 'day'))
   tmp.date$nstock <- tmp$nstock[findInterval(tmp.date$date,tmp$date)]
   tmp.date$datecor <- tmp$date[findInterval(tmp.date$date,tmp$date)]
   TS1 <- data.frame(datenew=rep(tmp.date$date,tmp.date$nstock),
                     date=rep(tmp.date$datecor,tmp.date$nstock))
-  TS1 <- plyr::ddply(TS1, ~ datenew, mutate, recnum = seq(1,length(datenew)))
+  TS1 <- plyr::ddply(TS1, ~ datenew, plyr::mutate, recnum = seq(1,length(datenew)))
   TS1 <- merge.x(TS1,tmp.TS1)
   TS1 <- TS1[,c("datenew","stockID")]
   colnames(TS1) <- c("date","stockID")
 
-  tmp <- plyr::ddply(tmp.TS3,~date,summarise,nstock=length(date))
+  tmp <- plyr::ddply(tmp.TS3,~date,plyr::summarise,nstock=length(date))
   tmp.date <- data.frame(date=getRebDates(min(TS$date),max(TS$date),rebFreq = 'day'))
   tmp.date$nstock <- tmp$nstock[findInterval(tmp.date$date,tmp$date)]
   tmp.date$datecor <- tmp$date[findInterval(tmp.date$date,tmp$date)]
   TS3 <- data.frame(datenew=rep(tmp.date$date,tmp.date$nstock),
                     date=rep(tmp.date$datecor,tmp.date$nstock))
-  TS3 <- plyr::ddply(TS3, ~ datenew, mutate, recnum = seq(1,length(datenew)))
+  TS3 <- plyr::ddply(TS3, ~ datenew, plyr::mutate, recnum = seq(1,length(datenew)))
   TS3 <- merge.x(TS3,tmp.TS3)
   TS3 <- TS3[,c("datenew","stockID")]
   colnames(TS3) <- c("date","stockID")
@@ -113,10 +113,10 @@ buildHML <- function(){
   TSR3 <- merge.x(TS3,re)
   R1 <- TSR1[,c("date","stockRtn")]
   R1 <- R1[!is.na(R1$stockRtn),]
-  R1 <- plyr::ddply(R1,~date,summarise,dailtRtn=mean(stockRtn,na.rm = T))
+  R1 <- plyr::ddply(R1,~date,plyr::summarise,dailtRtn=mean(stockRtn,na.rm = T))
   R3 <- TSR3[,c("date","stockRtn")]
   R3 <- R3[!is.na(R3$stockRtn),]
-  R3 <- plyr::ddply(R3,~date,summarise,dailtRtn=mean(stockRtn,na.rm = T))
+  R3 <- plyr::ddply(R3,~date,plyr::summarise,dailtRtn=mean(stockRtn,na.rm = T))
 
   rtn <- merge(R1,R3,by='date')
   colnames(rtn) <- c('date','H','L')
@@ -150,37 +150,37 @@ lcdb.update.FF3 <- function(){
     if(begT>=endT){
       return()
     }
-    tmp.begT <- begT - days(day(begT))
-    tmp.endT <- endT - days(day(endT))
+    tmp.begT <- begT - lubridate::days(lubridate::day(begT))
+    tmp.endT <- endT - lubridate::days(lubridate::day(endT))
 
     RebDates <- getRebDates(tmp.begT,tmp.endT,'month')
     TS <- getTS(RebDates,'EI000985')
     TSF <- gf_lcfs(TS,'F000002')
     TSF <- plyr::ddply(TSF,"date",transform,factorscore=ifelse(is.na(factorscore),median(factorscore,na.rm=TRUE),factorscore))
-    TSF <- plyr::ddply(TSF, ~ date, mutate, group = as.numeric(ggplot2::cut_number(factorscore,3)))
+    TSF <- plyr::ddply(TSF, ~ date, plyr::mutate, group = as.numeric(ggplot2::cut_number(factorscore,3)))
     tmp.TS1 <- TSF[TSF$group==1,c("date","stockID")]
-    tmp.TS1 <- plyr::ddply(tmp.TS1, ~ date, mutate, recnum = seq(1,length(date)))
+    tmp.TS1 <- plyr::ddply(tmp.TS1, ~ date, plyr::mutate, recnum = seq(1,length(date)))
     tmp.TS3 <- TSF[TSF$group==3,c("date","stockID")]
-    tmp.TS3 <- plyr::ddply(tmp.TS3, ~ date, mutate, recnum = seq(1,length(date)))
+    tmp.TS3 <- plyr::ddply(tmp.TS3, ~ date, plyr::mutate, recnum = seq(1,length(date)))
 
-    tmp <- ddply(tmp.TS1,~date,summarise,nstock=length(date))
+    tmp <- plyr::ddply(tmp.TS1,~date,plyr::summarise,nstock=length(date))
     tmp.date <- data.frame(date=getRebDates(begT,endT,rebFreq = 'day'))
     tmp.date$nstock <- tmp$nstock[findInterval(tmp.date$date,tmp$date)]
     tmp.date$datecor <- tmp$date[findInterval(tmp.date$date,tmp$date)]
     TS1 <- data.frame(datenew=rep(tmp.date$date,tmp.date$nstock),
                       date=rep(tmp.date$datecor,tmp.date$nstock))
-    TS1 <- plyr::ddply(TS1, ~ datenew, mutate, recnum = seq(1,length(datenew)))
+    TS1 <- plyr::ddply(TS1, ~ datenew, plyr::mutate, recnum = seq(1,length(datenew)))
     TS1 <- merge.x(TS1,tmp.TS1)
     TS1 <- TS1[,c("datenew","stockID")]
     colnames(TS1) <- c("date","stockID")
 
-    tmp <- plyr::ddply(tmp.TS3,~date,summarise,nstock=length(date))
+    tmp <- plyr::ddply(tmp.TS3,~date,plyr::summarise,nstock=length(date))
     tmp.date <- data.frame(date=getRebDates(begT,endT,rebFreq = 'day'))
     tmp.date$nstock <- tmp$nstock[findInterval(tmp.date$date,tmp$date)]
     tmp.date$datecor <- tmp$date[findInterval(tmp.date$date,tmp$date)]
     TS3 <- data.frame(datenew=rep(tmp.date$date,tmp.date$nstock),
                       date=rep(tmp.date$datecor,tmp.date$nstock))
-    TS3 <- plyr::ddply(TS3, ~ datenew, mutate, recnum = seq(1,length(datenew)))
+    TS3 <- plyr::ddply(TS3, ~ datenew, plyr::mutate, recnum = seq(1,length(datenew)))
     TS3 <- merge.x(TS3,tmp.TS3)
     TS3 <- TS3[,c("datenew","stockID")]
     colnames(TS3) <- c("date","stockID")
@@ -190,17 +190,17 @@ lcdb.update.FF3 <- function(){
                 " and t.TradingDay<=",rdate2int(endT))
     con <- db.quant()
     re <- sqlQuery(con,qr)
-    close(con)
+    odbcCloseAll()
     re$date <- intdate2r(re$date)
 
     TSR1 <- merge.x(TS1,re)
     TSR3 <- merge.x(TS3,re)
     R1 <- TSR1[,c("date","stockRtn")]
     R1 <- R1[!is.na(R1$stockRtn),]
-    R1 <- plyr::ddply(R1,~date,summarise,dailtRtn=mean(stockRtn,na.rm = T))
+    R1 <- plyr::ddply(R1,~date,plyr::summarise,dailtRtn=mean(stockRtn,na.rm = T))
     R3 <- TSR3[,c("date","stockRtn")]
     R3 <- R3[!is.na(R3$stockRtn),]
-    R3 <- plyr::ddply(R3,~date,summarise,dailtRtn=mean(stockRtn,na.rm = T))
+    R3 <- plyr::ddply(R3,~date,plyr::summarise,dailtRtn=mean(stockRtn,na.rm = T))
 
     rtn <- merge(R1,R3,by='date')
     colnames(rtn) <- c('date','S','B')
@@ -224,37 +224,37 @@ lcdb.update.FF3 <- function(){
     if(begT>=endT){
       return()
     }
-    tmp.begT <- begT - days(day(begT))
-    tmp.endT <- endT - days(day(endT))
+    tmp.begT <- begT - lubridate::days(lubridate::day(begT))
+    tmp.endT <- endT - lubridate::days(lubridate::day(endT))
 
     RebDates <- getRebDates(tmp.begT,tmp.endT,'month')
     TS <- getTS(RebDates,'EI000985')
     TSF <- gf_lcfs(TS,'F000006')
     TSF <- plyr::ddply(TSF,"date",transform,factorscore=ifelse(is.na(factorscore),median(factorscore,na.rm=TRUE),factorscore))
-    TSF <- plyr::ddply(TSF, ~ date, mutate, group = as.numeric(ggplot2::cut_number(factorscore,3)))
+    TSF <- plyr::ddply(TSF,"date", plyr::mutate, group = as.numeric(ggplot2::cut_number(factorscore,3)))
     tmp.TS1 <- TSF[TSF$group==1,c("date","stockID")]
-    tmp.TS1 <- plyr::ddply(tmp.TS1, ~ date, mutate, recnum = seq(1,length(date)))
+    tmp.TS1 <- plyr::ddply(tmp.TS1,"date", plyr::mutate, recnum = seq(1,length(date)))
     tmp.TS3 <- TSF[TSF$group==3,c("date","stockID")]
-    tmp.TS3 <- plyr::ddply(tmp.TS3, ~ date, mutate, recnum = seq(1,length(date)))
+    tmp.TS3 <- plyr::ddply(tmp.TS3,"date", plyr::mutate, recnum = seq(1,length(date)))
 
-    tmp <- plyr::ddply(tmp.TS1,~date,summarise,nstock=length(date))
+    tmp <- plyr::ddply(tmp.TS1,~date,plyr::summarise,nstock=length(date))
     tmp.date <- data.frame(date=getRebDates(begT,endT,rebFreq = 'day'))
     tmp.date$nstock <- tmp$nstock[findInterval(tmp.date$date,tmp$date)]
     tmp.date$datecor <- tmp$date[findInterval(tmp.date$date,tmp$date)]
     TS1 <- data.frame(datenew=rep(tmp.date$date,tmp.date$nstock),
                       date=rep(tmp.date$datecor,tmp.date$nstock))
-    TS1 <- plyr::ddply(TS1, ~ datenew, mutate, recnum = seq(1,length(datenew)))
+    TS1 <- plyr::ddply(TS1, ~ datenew, plyr::mutate, recnum = seq(1,length(datenew)))
     TS1 <- merge.x(TS1,tmp.TS1)
     TS1 <- TS1[,c("datenew","stockID")]
     colnames(TS1) <- c("date","stockID")
 
-    tmp <- plyr::ddply(tmp.TS3,~date,summarise,nstock=length(date))
+    tmp <- plyr::ddply(tmp.TS3,~date,plyr::summarise,nstock=length(date))
     tmp.date <- data.frame(date=getRebDates(begT,endT,rebFreq = 'day'))
     tmp.date$nstock <- tmp$nstock[findInterval(tmp.date$date,tmp$date)]
     tmp.date$datecor <- tmp$date[findInterval(tmp.date$date,tmp$date)]
     TS3 <- data.frame(datenew=rep(tmp.date$date,tmp.date$nstock),
                       date=rep(tmp.date$datecor,tmp.date$nstock))
-    TS3 <- plyr::ddply(TS3, ~ datenew, mutate, recnum = seq(1,length(datenew)))
+    TS3 <- plyr::ddply(TS3, ~ datenew, plyr::mutate, recnum = seq(1,length(datenew)))
     TS3 <- merge.x(TS3,tmp.TS3)
     TS3 <- TS3[,c("datenew","stockID")]
     colnames(TS3) <- c("date","stockID")
@@ -264,17 +264,17 @@ lcdb.update.FF3 <- function(){
                 " and t.TradingDay<=",rdate2int(endT))
     con <- db.quant()
     re <- sqlQuery(con,qr)
-    close(con)
+    odbcCloseAll()
     re$date <- intdate2r(re$date)
 
     TSR1 <- merge.x(TS1,re)
     TSR3 <- merge.x(TS3,re)
     R1 <- TSR1[,c("date","stockRtn")]
     R1 <- R1[!is.na(R1$stockRtn),]
-    R1 <- plyr::ddply(R1,~date,summarise,dailtRtn=mean(stockRtn,na.rm = T))
+    R1 <- plyr::ddply(R1,~date,plyr::summarise,dailtRtn=mean(stockRtn,na.rm = T))
     R3 <- TSR3[,c("date","stockRtn")]
     R3 <- R3[!is.na(R3$stockRtn),]
-    R3 <- plyr::ddply(R3,~date,summarise,dailtRtn=mean(stockRtn,na.rm = T))
+    R3 <- plyr::ddply(R3,~date,plyr::summarise,dailtRtn=mean(stockRtn,na.rm = T))
 
     rtn <- merge(R1,R3,by='date')
     colnames(rtn) <- c('date','H','L')

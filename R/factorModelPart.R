@@ -152,6 +152,136 @@ add.index.lcdb <- function(indexID){
 
 
 
+#' fix shenwan new industry rule
+#'
+#' fix local database's shenwan industry rule's bug and make the rule keep consistent.
+#' @author Andrew Dow
+#' @return nothing.
+#' @examples
+#' fix.lcdb.swindustry()
+#' @export
+fix.lcdb.swindustry <- function(){
+  con <- db.local()
+  qr <- "select * from LC_ExgIndustry where Standard=33"
+  re <- dbGetQuery(con,qr)
+  dbDisconnect(con)
+  if(nrow(re)>0) return("Already in local database!")
+
+  #get raw data
+  con <- db.jy()
+  qr <- "SELECT 'EQ'+s.SecuCode 'stockID',l.CompanyCode,l.FirstIndustryCode 'Code1',l.FirstIndustryName 'Name1',
+  l.SecondIndustryCode 'Code2',l.SecondIndustryName 'Name2',l.ThirdIndustryCode 'Code3',
+  l.ThirdIndustryName 'Name3',convert(varchar, l.InfoPublDate, 112) 'InDate',
+  convert(varchar, l.CancelDate, 112) 'OutDate',l.InfoSource,l.Standard,l.Industry,
+  l.IfPerformed 'Flag',l.XGRQ 'UpdateTime'
+  FROM [JYDB].[dbo].[LC_ExgIndustry] l,JYDB.dbo.SecuMain s
+  where l.CompanyCode=s.CompanyCode and s.SecuCategory=1
+  and s.SecuMarket in(83,90) and l.Standard in(9,24)"
+  re <- sqlQuery(con,qr,stringsAsFactors=F)
+  re <- re[substr(re$stockID,1,3) %in% c('EQ6','EQ3','EQ0'),]
+  re <- re[ifelse(is.na(re$OutDate),T,re$OutDate!=re$InDate),] # remove indate==outdate wrong data
+
+  sw24use <- re[(re$InDate>20140101) & (re$Standard==24),]
+  sw9use <- re[(re$InDate<20140101) & (re$Standard==9),]
+  sw24tmp <- re[(re$InDate==20140101) & (re$Standard==24),]
+  sw9tmp <- sw9use[is.na(sw9use$OutDate) | sw9use$OutDate>20140101,c("stockID","Code1","Name1","Code2","Name2","Code3","Name3")]
+  colnames(sw9tmp) <- c("stockID","OldCode1","OldName1","OldCode2","OldName2","OldCode3","OldName3")
+  hashtable <- merge(sw24tmp,sw9tmp,by='stockID',all.x=T)
+  hashtable <- hashtable[,c("Code1","Name1","Code2","Name2","Code3","Name3","OldCode1","OldName1","OldCode2","OldName2","OldCode3","OldName3")]
+  hashtable <- unique(hashtable)
+  hashtable <- plyr::ddply(hashtable,~OldName3,plyr::mutate,n=length(OldName3))
+  hashtable <- hashtable[hashtable$n==1,c("Code1","Name1","Code2","Name2","Code3","Name3","OldCode1","OldName1","OldCode2","OldName2","OldCode3","OldName3")]
+
+  sw9use <- plyr::rename(sw9use,replace=c("Code1"="OldCode1",
+                                    "Name1"="OldName1",
+                                    "Code2"="OldCode2",
+                                    "Name2"="OldName2",
+                                    "Code3"="OldCode3",
+                                    "Name3"="OldName3"))
+  sw9use <- merge(sw9use,hashtable,by=c("OldCode1","OldName1",
+                                        "OldCode2","OldName2",
+                                        "OldCode3","OldName3"),all.x=T)
+  sw9use <- sw9use[,c("stockID","CompanyCode","Code1","Name1","Code2","Name2",
+                      "Code3","Name3","InDate","OutDate","InfoSource","Standard",
+                      "Industry","Flag","UpdateTime","OldCode1","OldName1","OldCode2",
+                      "OldName2","OldCode3","OldName3")]
+  tmp <- sw9use[is.na(sw9use$Code1),c("stockID","CompanyCode","InDate","OutDate","InfoSource","Standard",
+                                      "Industry","Flag","UpdateTime","OldCode1","OldName1","OldCode2",
+                                      "OldName2","OldCode3","OldName3")]
+  sw9use <- sw9use[!is.na(sw9use$Code1),c("stockID","CompanyCode","Code1","Name1","Code2","Name2",
+                                          "Code3","Name3","InDate","OutDate","InfoSource","Standard",
+                                          "Industry","Flag","UpdateTime")]
+
+  tmp <- plyr::arrange(tmp,stockID,InDate)
+  tmp <-merge(tmp,sw24tmp[,c("stockID","Code1","Name1","Code2","Name2","Code3","Name3")],by='stockID',all.x=T)
+  zhcn <- unique(sw24use[sw24use$Code1==510000,'Name1'])
+  tmp[is.na(tmp$Code1),c("Name1","Name2","Name3")] <- zhcn
+  tmp[is.na(tmp$Code1),"Code1"] <-510000
+  tmp[is.na(tmp$Code2),"Code3"] <-510100
+  tmp[is.na(tmp$Code3),"Code3"] <-510101
+  tmp <- tmp[,c("stockID","CompanyCode","Code1","Name1","Code2","Name2",
+                "Code3","Name3","InDate","OutDate","InfoSource","Standard",
+                "Industry","Flag","UpdateTime")]
+  sw9use <- rbind(sw9use,tmp)
+
+  sw33 <- rbind(sw9use,sw24use)
+  sw33$Standard <- 33
+  sw33$Code1 <- paste('ES33',sw33$Code1,sep = '')
+  sw33$Code2 <- paste('ES33',sw33$Code2,sep = '')
+  sw33$Code3 <- paste('ES33',sw33$Code3,sep = '')
+  sw33$Code99 <- c(NA)
+  sw33$Name99 <- c(NA)
+  sw33$Code98 <- c(NA)
+  sw33$Name98 <- c(NA)
+  sw33 <- plyr::arrange(sw33,stockID,InDate)
+
+  #deal with abnormal condition
+  #1 outdate<=indate
+  sw33 <- sw33[ifelse(is.na(sw33$OutDate),T,sw33$OutDate>sw33$InDate),]
+  #2 one stock has two null outdate
+  tmp <- plyr::ddply(sw33,'stockID',plyr::summarise,NANum=sum(is.na(OutDate)))
+  tmp <- c(tmp[tmp$NANum>1,'stockID'])
+  sw33tmp <- sw33[sw33$stockID %in% tmp,]
+  sw33 <- sw33[!(sw33$stockID %in% tmp),]
+  if(nrow(sw33tmp)>0){
+    for(i in 1:(nrow(sw33tmp)-1)){
+      if(sw33tmp$stockID[i]==sw33tmp$stockID[i+1] && is.na(sw33tmp$OutDate[i])) sw33tmp$OutDate[i] <- sw33tmp$InDate[i+1]
+    }
+  }
+  sw33 <- rbind(sw33,sw33tmp)
+  sw33 <- plyr::arrange(sw33,stockID,InDate)
+  #3 indate[i+1]!=outdate[i]
+  sw33$tmpstockID <- c(NA,sw33$stockID[1:(nrow(sw33)-1)])
+  sw33$tmpOutDate <- c(NA,sw33$OutDate[1:(nrow(sw33)-1)])
+  sw33$InDate <- ifelse(ifelse(is.na(sw33$tmpstockID) | is.na(sw33$tmpOutDate),FALSE,sw33$stockID==sw33$tmpstockID & sw33$InDate!=sw33$tmpOutDate),
+                        sw33$tmpOutDate,sw33$InDate)
+  sw33 <- subset(sw33,select=-c(tmpstockID,tmpOutDate))
+  # 4 duplicate indate
+  sw33 <- sw33[ifelse(is.na(sw33$OutDate),T,sw33$OutDate>sw33$InDate),]
+  sw33[!is.na(sw33$OutDate) & sw33$Flag==1,'Flag'] <- 2
+
+  # update local database CT_IndustryList
+  qr <- "SELECT Standard,Classification 'level','ES33'+IndustryCode 'IndustryID'
+  ,IndustryName,SectorCode 'Alias','ES33'+FirstIndustryCode 'Code1'
+  ,FirstIndustryName 'Name1','ES33'+SecondIndustryCode 'Code2'
+  ,SecondIndustryName 'Name2','ES33'+ThirdIndustryCode 'Code3'
+  ,ThirdIndustryName 'Name3',UpdateTime
+  FROM CT_IndustryType where Standard=24"
+  indCon <- sqlQuery(con,qr,stringsAsFactors=F)
+  odbcCloseAll()
+  indCon$Standard <- 33
+  indCon[is.na(indCon$Name2),'Code2'] <- NA
+  indCon[is.na(indCon$Name3),'Code3'] <- NA
+
+
+  con <- db.local()
+  dbWriteTable(con,'LC_ExgIndustry',sw33,overwrite=FALSE,append=TRUE,row.names=FALSE)
+  dbWriteTable(con,'CT_IndustryList',indCon,overwrite=FALSE,append=TRUE,row.names=FALSE)
+  dbDisconnect(con)
+  return('Done!')
+}
+
+
 
 
 #' combine funcs table.IC and table.Ngroup.spread
@@ -222,7 +352,7 @@ gf.ln_mkt_cap <- function(TS){
 #' @param TS is a TS object.
 #' @return a TSF object
 #' @examples
-#' RebDates <- getRebDates(as.Date('2010-03-31'),as.Date('2015-12-31'),'month')
+#' RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2015-12-31'),'month')
 #' TS <- getTS(RebDates,'EI000300')
 #' TSF <- gf.liquidity(TS)
 #' @export
@@ -256,6 +386,164 @@ gf.liquidity <- function(TS){
   TSF <- merge.x(TS,re)
   return(TSF)
 }
+
+
+
+#' get beta factor
+#'
+#'
+#' @author Andrew Dow
+#' @param TS is a TS object.
+#' @return a TSF object
+#' @examples
+#' RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2015-12-31'),'month')
+#' TS <- getTS(RebDates,'EI000300')
+#' TSF <- gf.beta(TS)
+#' @export
+gf.beta <- function(TS){
+  check.TS(TS)
+
+  begT <- trday.nearby(min(TS$date),250)
+  endT <- max(TS$date)
+  qr <- paste("select t.TradingDay 'date',t.ID 'stockID',t.DailyReturn 'stockRtn'
+              from QT_DailyQuote t where t.TradingDay>=",rdate2int(begT),
+              " and t.TradingDay<=",rdate2int(endT))
+  con <- db.quant()
+  re <- sqlQuery(con,qr)
+  odbcCloseAll()
+  re <- re[re$stockID %in% unique(TS$stockID),]
+  re <- plyr::arrange(re,stockID,date)
+
+
+  qr <- paste("SELECT convert(varchar(8),q.[TradingDay],112) 'date',
+              q.ClosePrice/q.PrevClosePrice-1 'indexRtn'
+              FROM QT_IndexQuote q,SecuMain s
+              where q.InnerCode=s.InnerCode AND s.SecuCode='801003'
+              and q.TradingDay>=",QT(begT),
+              " and q.TradingDay<=",QT(endT))
+  con <- db.jy()
+  index <- sqlQuery(db.jy(),qr)
+  odbcCloseAll()
+
+  re <- merge.x(re,index)
+  re <- re[!is.na(re$indexRtn),]
+  tmp <- as.data.frame(table(re$stockID))
+  tmp <- tmp[tmp$Freq>=250,]
+  re <- re[re$stockID %in% tmp$Var1,]
+  re <- plyr::arrange(re,stockID,date)
+
+  stocks <- unique(re$stockID)
+  #pb <- txtProgressBar(style = 3)
+  for(j in 1:length(stocks)){
+    tmp <- re[re$stockID==stocks[j],]
+    beta.tmp <- zoo::rollapply(tmp[,c('indexRtn','stockRtn')], width = 250,
+                          function(x) coef(lm(stockRtn ~ indexRtn, data = as.data.frame(x)))[2],
+                          by.column = FALSE, align = "right")
+    beta.tmp <- data.frame(date=tmp$date[250:nrow(tmp)],
+                           stockID=stocks[j],
+                           factorscore=beta.tmp)
+    if(j==1){
+      beta <- beta.tmp
+    }else{
+      beta <- rbind(beta,beta.tmp)
+    }
+      #setTxtProgressBar(pb, j/length(stocks))
+  }
+  #close(pb)
+  beta$date <- intdate2r(beta$date)
+  beta <- beta[beta$date %in% unique(TS$date),]
+  TSF <- merge.x(TS,beta)
+
+  return(TSF)
+}
+
+
+
+#' get IVR factor
+#'
+#'
+#' @author Andrew Dow
+#' @param TS is a TS object.
+#' @return a TSF object
+#' @examples
+#' RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2015-12-31'),'month')
+#' TS <- getTS(RebDates,'EI000300')
+#' TSF <- gf.IVR(TS)
+#' @export
+gf.IVR <- function(TS){
+  check.TS(TS)
+
+  lcdb.update.FF3()
+  begT <- trday.nearby(min(TS$date),22)
+  endT <- max(TS$date)
+
+  con <- db.local()
+  qr <- paste("select date,factorScore 'SMB'
+              from QT_FactorScore_amtao where factorName='SMB'
+              and date>=",rdate2int(begT)," and date<=",rdate2int(endT))
+  SMB <- dbGetQuery(con,qr)
+  qr <- paste("select date,factorScore 'HML'
+              from QT_FactorScore_amtao where factorName='HML'
+              and date>=",rdate2int(begT)," and date<=",rdate2int(endT))
+  HML <- dbGetQuery(con,qr)
+  dbDisconnect(con)
+
+  FF3 <- merge(SMB,HML,by='date')
+  con <- db.jy()
+  qr <- paste("SELECT convert(varchar(8),q.[TradingDay],112) 'date',
+              q.ClosePrice/q.PrevClosePrice-1 'market'
+              FROM QT_IndexQuote q,SecuMain s
+              where q.InnerCode=s.InnerCode AND s.SecuCode='801003'
+              and q.TradingDay>=",QT(rdate2int(begT))," and q.TradingDay<=",QT(rdate2int(endT)),
+              " order by q.TradingDay")
+  index <- sqlQuery(con,qr)
+  FF3 <- merge(FF3,index,by='date')
+
+  qr <- paste("select t.TradingDay 'date',t.ID 'stockID',t.DailyReturn 'stockRtn'
+              from QT_DailyQuote t where t.TradingDay>=",rdate2int(begT),
+              " and t.TradingDay<=",rdate2int(endT))
+  con <- db.quant()
+  stockrtn <- sqlQuery(con,qr,stringsAsFactors=F)
+  odbcCloseAll()
+  stockrtn <- stockrtn[stockrtn$stockID %in% unique(TS$stockID),]
+  stockrtn <- plyr::arrange(stockrtn,stockID,date)
+
+  tmp.stock <- unique(stockrtn$stockID)
+  IVR <- data.frame()
+  #pb <- txtProgressBar(style = 3)
+  nwin <- 22
+  for(i in 1:length(tmp.stock)){
+    tmp.rtn <- stockrtn[stockrtn$stockID==tmp.stock[i],]
+    tmp.FF3 <- merge(FF3,tmp.rtn[,c('date','stockRtn')],by='date',all.x=T)
+    tmp.FF3 <- tmp.FF3[!is.na(tmp.FF3$stockRtn),]
+    if(nrow(tmp.FF3)<nwin) next
+    tmp <- zoo::rollapply(tmp.FF3[,c("stockRtn","market","SMB","HML")], width =nwin,
+                     function(x){
+                       x <- as.data.frame(x)
+                       if(sum(x$stockRtn==0)>=5){
+                         result <- NaN
+                       }else{
+                         tmp.lm <- lm(stockRtn~market+SMB+HML, data = x)
+                         result <- 1-summary(tmp.lm)$r.squared
+                       }
+                       return(result)},by.column = FALSE, align = "right")
+    IVR.tmp <- data.frame(date=tmp.FF3$date[nwin:nrow(tmp.FF3)],
+                          stockID=as.character(tmp.stock[i]),
+                          IVRValue=tmp)
+    IVR <- rbind(IVR,IVR.tmp)
+    #setTxtProgressBar(pb, i/length(tmp.stock))
+  }
+  #close(pb)
+  IVR <- IVR[!is.nan(IVR$IVRValue),]
+  IVR$date <- intdate2r(IVR$date)
+  colnames(IVR) <- c('date','stockID','factorscore')
+
+  TSF <- merge.x(TS,IVR,by=c('date','stockID'))
+  return(TSF)
+}
+
+
+
 
 
 
@@ -328,6 +616,8 @@ pure.factor.test <- function(TSFR,riskfactorLists){
   colnames(portrtn) <- 'pureFactorPort'
   return(portrtn)
 }
+
+
 
 
 
