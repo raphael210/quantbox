@@ -35,40 +35,42 @@ add.index.lcdb <- function(indexID){
                            StockID_wind='000985.SH')
 
     #part 2 update local LC_IndexComponent
-    qr <- "SELECT 'EI000985' 'IndexID','EQ'+s2.SecuCode 'SecuID',
-    convert(varchar(8),l.[InDate],112) 'InDate',
-    convert(varchar(8),l.[OutDate],112) 'OutDate',
-    l.[Flag],l.[XGRQ] 'UpdateTime',
-    convert(varchar(8),s2.ListedDate,112) 'IPODate'
-    FROM jydb.dbo.LC_IndexComponent l
-    inner join jydb.dbo.SecuMain s1 on l.IndexInnerCode=s1.InnerCode and s1.SecuCode='801003'
-    LEFT join jydb.dbo.SecuMain s2 on l.SecuInnerCode=s2.InnerCode"
-    indexComp <- sqlQuery(con,qr,stringsAsFactors=F)
-    indexComp <- transform(indexComp,
-                           InDate=intdate2r(InDate),
+    qr <- "SELECT 'EI'+s1.SecuCode 'IndexID','EQ'+s2.SecuCode 'SecuID',
+    convert(varchar(8),l.InDate,112) 'InDate',convert(varchar(8),l.OutDate,112) 'OutDate',
+    l.Flag,l.XGRQ 'UpdateTime',convert(varchar(8),s2.ListedDate,112) 'IPODate'
+    FROM LC_IndexComponent l
+    inner join SecuMain s1 on l.IndexInnerCode=s1.InnerCode and s1.SecuCode in('801003','000985')
+    LEFT join SecuMain s2 on l.SecuInnerCode=s2.InnerCode
+    order by s1.SecuCode,l.InDate"
+    re <- sqlQuery(con,qr,stringsAsFactors=F)
+    indexComp <- re[re$IndexID=='EI000985',c("IndexID","SecuID","InDate","OutDate","Flag","UpdateTime")]
+
+    tmp <- re[re$IndexID=='EI801003' & re$InDate<20110802,]
+    tmp <- tmp[substr(tmp$SecuID,1,3) %in% c('EQ0','EQ3','EQ6'),]
+    tmp <- transform(tmp,InDate=intdate2r(InDate),
                            OutDate=intdate2r(OutDate),
                            IPODate=intdate2r(IPODate))
-    indexComp[(indexComp$InDate-indexComp$IPODate)<90,'InDate'] <- trday.offset(indexComp[(indexComp$InDate-indexComp$IPODate)<90,'IPODate'],by = months(3))
-    indexComp <- indexComp[is.na(indexComp$OutDate-indexComp$InDate) | (indexComp$OutDate-indexComp$InDate)>30,]
-    indexComp <- indexComp[substr(indexComp$SecuID,1,3) %in% c('EQ0','EQ3','EQ6'),]
-    indexComp <- indexComp[,c("IndexID","SecuID","InDate","OutDate","Flag","UpdateTime")]
+    tmp[(tmp$InDate-tmp$IPODate)<90,'InDate'] <- trday.offset(tmp[(tmp$InDate-tmp$IPODate)<90,'IPODate'],by = months(3))
+    tmp <- tmp[tmp$InDate<as.Date('2011-08-02'),]
+    tmp <- tmp[,c("IndexID","SecuID","InDate","OutDate","Flag","UpdateTime")]
 
     qr <- "select 'EQ'+s.SecuCode 'SecuID',st.SpecialTradeType,
     ct.MS,convert(varchar(8),st.SpecialTradeTime,112) 'SpecialTradeTime'
     from jydb.dbo.LC_SpecialTrade st,jydb.dbo.SecuMain s,jydb.dbo.CT_SystemConst ct
     where st.InnerCode=s.InnerCode and SecuCategory=1
-    and st.SpecialTradeType=ct.DM and ct.LB=1185 and st.SpecialTradeType in(1,2,5,6,10)
+    and st.SpecialTradeType=ct.DM and ct.LB=1185 and st.SpecialTradeType in(1,2,5,6)
     order by s.SecuCode"
     st <- sqlQuery(con,qr,stringsAsFactors=F)
     odbcCloseAll()
     st <- st[substr(st$SecuID,1,3) %in% c('EQ0','EQ3','EQ6'),]
+    st <- st[st$SpecialTradeTime<20110802,]
     st$InDate <- ifelse(st$SpecialTradeType %in% c(2,6),st$SpecialTradeTime,NA)
-    st$OutDate <- ifelse(st$SpecialTradeType %in% c(1,5,10),st$SpecialTradeTime,NA)
+    st$OutDate <- ifelse(st$SpecialTradeType %in% c(1,5),st$SpecialTradeTime,NA)
     st$InDate <- intdate2r(st$InDate)
     st$OutDate <- intdate2r(st$OutDate)
     st <- st[,c("SecuID","InDate","OutDate")]
 
-    tmp <- rbind(indexComp[,c("SecuID","InDate","OutDate")],st)
+    tmp <- rbind(tmp[,c("SecuID","InDate","OutDate")],st)
     tmp <- reshape2::melt(tmp,id=c('SecuID'))
     tmp <- tmp[!(is.na(tmp$value) & tmp$variable=='InDate'),]
     tmp <- unique(tmp)
@@ -91,17 +93,18 @@ add.index.lcdb <- function(indexID){
     tmp2 <- tmp[tmp$variable=='OutDate',]
     tmp <- cbind(tmp1[,c("SecuID","value")],tmp2[,"value"])
     colnames(tmp) <- c("SecuID","InDate","OutDate")
-    tmp[tmp$OutDate==as.Date('2100-01-01'),'OutDate'] <- NA
+    tmp[tmp$OutDate>as.Date('2011-08-02'),'OutDate'] <- as.Date('2011-08-02')
     tmp$IndexID <- 'EI000985'
-    tmp$Flag <- ifelse(is.na(tmp$OutDate),1,0)
+    tmp$Flag <- 0
     tmp$UpdateTime <- Sys.time()
     tmp$InDate <- rdate2int(tmp$InDate)
     tmp$OutDate <- rdate2int(tmp$OutDate )
     tmp <- tmp[,c("IndexID","SecuID","InDate","OutDate","Flag","UpdateTime")]
 
+    indexComp <- rbind(indexComp,tmp)
     con <- db.local()
     dbWriteTable(con,"SecuMain",indexInfo,overwrite=FALSE,append=TRUE,row.names=FALSE)
-    dbWriteTable(con,"LC_IndexComponent",tmp,overwrite=FALSE,append=TRUE,row.names=FALSE)
+    dbWriteTable(con,"LC_IndexComponent",indexComp,overwrite=FALSE,append=TRUE,row.names=FALSE)
     dbDisconnect(con)
   }else{
     con <- db.local()
@@ -119,8 +122,8 @@ add.index.lcdb <- function(indexID){
                 from SecuMain WHERE SecuCode=",
                 QT(substr(indexID,3,8)),
                 " and SecuCategory=4",sep='')
-    re1 <- sqlQuery(con,qr)
-    re1 <- transform(re1,ID=indexID,
+    indexInfo <- sqlQuery(con,qr)
+    indexInfo <- transform(indexInfo,ID=indexID,
                      StockID_TS=ifelse(is.na(stockID2stockID(indexID,'local','ts')),substr(indexID,3,8),
                                        stockID2stockID(indexID,'local','ts')),
                      StockID_wind=ifelse(is.na(stockID2stockID(indexID,'local','wind')),substr(indexID,3,8),
@@ -134,12 +137,12 @@ add.index.lcdb <- function(indexID){
                 on l.IndexInnerCode=s1.InnerCode and s1.SecuCode=",
                 QT(substr(indexID,3,8))," LEFT join JYDB.dbo.SecuMain s2
                 on l.SecuInnerCode=s2.InnerCode")
-    re2 <- sqlQuery(con,qr)
+    indexComp <- sqlQuery(con,qr)
     odbcCloseAll()
 
     con <- db.local()
-    dbWriteTable(con,"SecuMain",re1,overwrite=FALSE,append=TRUE,row.names=FALSE)
-    dbWriteTable(con,"LC_IndexComponent",re2,overwrite=FALSE,append=TRUE,row.names=FALSE)
+    dbWriteTable(con,"SecuMain",indexInfo,overwrite=FALSE,append=TRUE,row.names=FALSE)
+    dbWriteTable(con,"LC_IndexComponent",indexComp,overwrite=FALSE,append=TRUE,row.names=FALSE)
     dbDisconnect(con)
   }
 
