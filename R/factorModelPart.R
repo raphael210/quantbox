@@ -1,17 +1,149 @@
-#' brkQT
+
+
+#' add a index to local database
 #'
-#' bracket a series of string.
+#'
 #' @author Andrew Dow
-#' @param series is a series object
-#' @return a string object with bracket surrounded the series object.
+#' @param indexID is index code,such as EI000300
+#' @return nothing
 #' @examples
-#' series <- c('EQ000001','EQ000002')
-#' brkQT(series)
+#' add.index.lcdb(indexID="EI801003")
+#' add.index.lcdb(indexID="EI000985")
 #' @export
-brkQT <- function(series){
-  tmp <- paste(series,collapse = "','")
-  tmp <- paste("('",tmp,"')",sep='')
-  return(tmp)
+add.index.lcdb <- function(indexID){
+  #check whether the index in local db
+  if(indexID=='EI000985'){
+    con <- db.local()
+    qr <- paste("select * from SecuMain where ID="
+                ,QT(indexID),sep="")
+    re <- dbGetQuery(con,qr)
+    dbDisconnect(con)
+    if(nrow(re)>0) return("Already in local database!")
+
+    #part 1 update local SecuMain
+    con <- db.jy()
+    qr <- paste("select ID,InnerCode,CompanyCode,SecuCode,SecuAbbr,SecuMarket,
+                ListedSector,ListedState,JSID 'UpdateTime',SecuCode 'StockID_TS',
+                SecuCategory,ListedDate,SecuCode 'StockID_wind'
+                from SecuMain WHERE SecuCode=",
+                QT(substr(indexID,3,8)),
+                " and SecuCategory=4")
+    indexInfo <- sqlQuery(con,qr)
+    indexInfo <- transform(indexInfo,ID=indexID,
+                           SecuCode='000985',
+                           StockID_TS='SH000985',
+                           StockID_wind='000985.SH')
+
+    #part 2 update local LC_IndexComponent
+    qr <- "SELECT 'EI000985' 'IndexID','EQ'+s2.SecuCode 'SecuID',
+    convert(varchar(8),l.[InDate],112) 'InDate',
+    convert(varchar(8),l.[OutDate],112) 'OutDate',
+    l.[Flag],l.[XGRQ] 'UpdateTime',
+    convert(varchar(8),s2.ListedDate,112) 'IPODate'
+    FROM jydb.dbo.LC_IndexComponent l
+    inner join jydb.dbo.SecuMain s1 on l.IndexInnerCode=s1.InnerCode and s1.SecuCode='801003'
+    LEFT join jydb.dbo.SecuMain s2 on l.SecuInnerCode=s2.InnerCode"
+    indexComp <- sqlQuery(con,qr,stringsAsFactors=F)
+    indexComp <- transform(indexComp,
+                           InDate=intdate2r(InDate),
+                           OutDate=intdate2r(OutDate),
+                           IPODate=intdate2r(IPODate))
+    indexComp[(indexComp$InDate-indexComp$IPODate)<90,'InDate'] <- trday.offset(indexComp[(indexComp$InDate-indexComp$IPODate)<90,'IPODate'],by = months(3))
+    indexComp <- indexComp[is.na(indexComp$OutDate-indexComp$InDate) | (indexComp$OutDate-indexComp$InDate)>30,]
+    indexComp <- indexComp[substr(indexComp$SecuID,1,3) %in% c('EQ0','EQ3','EQ6'),]
+    indexComp <- indexComp[,c("IndexID","SecuID","InDate","OutDate","Flag","UpdateTime")]
+
+    qr <- "select 'EQ'+s.SecuCode 'SecuID',st.SpecialTradeType,
+    ct.MS,convert(varchar(8),st.SpecialTradeTime,112) 'SpecialTradeTime'
+    from jydb.dbo.LC_SpecialTrade st,jydb.dbo.SecuMain s,jydb.dbo.CT_SystemConst ct
+    where st.InnerCode=s.InnerCode and SecuCategory=1
+    and st.SpecialTradeType=ct.DM and ct.LB=1185 and st.SpecialTradeType in(1,2,5,6,10)
+    order by s.SecuCode"
+    st <- sqlQuery(con,qr,stringsAsFactors=F)
+    odbcCloseAll()
+    st <- st[substr(st$SecuID,1,3) %in% c('EQ0','EQ3','EQ6'),]
+    st$InDate <- ifelse(st$SpecialTradeType %in% c(2,6),st$SpecialTradeTime,NA)
+    st$OutDate <- ifelse(st$SpecialTradeType %in% c(1,5,10),st$SpecialTradeTime,NA)
+    st$InDate <- intdate2r(st$InDate)
+    st$OutDate <- intdate2r(st$OutDate)
+    st <- st[,c("SecuID","InDate","OutDate")]
+
+    tmp <- rbind(indexComp[,c("SecuID","InDate","OutDate")],st)
+    tmp <- reshape2::melt(tmp,id=c('SecuID'))
+    tmp <- tmp[!(is.na(tmp$value) & tmp$variable=='InDate'),]
+    tmp <- unique(tmp)
+    tmp[is.na(tmp$value),'value'] <- as.Date('2100-01-01')
+    tmp <- plyr::arrange(tmp,SecuID,value)
+
+    tmp$flag <- c(1)
+    for(i in 2: nrow(tmp)){
+      if(tmp$SecuID[i]==tmp$SecuID[i-1] && tmp$variable[i]==tmp$variable[i-1] && tmp$variable[i]=='InDate'){
+        tmp$flag[i-1] <- 0
+      }else if(tmp$SecuID[i]==tmp$SecuID[i-1] && tmp$variable[i]==tmp$variable[i-1] && tmp$variable[i]=='OutDate'){
+        tmp$flag[i] <- 0
+      }else{
+        next
+      }
+    }
+    tmp <- tmp[tmp$flag==1,c("SecuID","variable","value")]
+    tmp <- plyr::arrange(tmp,SecuID,value)
+    tmp1 <- tmp[tmp$variable=='InDate',]
+    tmp2 <- tmp[tmp$variable=='OutDate',]
+    tmp <- cbind(tmp1[,c("SecuID","value")],tmp2[,"value"])
+    colnames(tmp) <- c("SecuID","InDate","OutDate")
+    tmp[tmp$OutDate==as.Date('2100-01-01'),'OutDate'] <- NA
+    tmp$IndexID <- 'EI000985'
+    tmp$Flag <- ifelse(is.na(tmp$OutDate),1,0)
+    tmp$UpdateTime <- Sys.time()
+    tmp$InDate <- rdate2int(tmp$InDate)
+    tmp$OutDate <- rdate2int(tmp$OutDate )
+    tmp <- tmp[,c("IndexID","SecuID","InDate","OutDate","Flag","UpdateTime")]
+
+    con <- db.local()
+    dbWriteTable(con,"SecuMain",indexInfo,overwrite=FALSE,append=TRUE,row.names=FALSE)
+    dbWriteTable(con,"LC_IndexComponent",tmp,overwrite=FALSE,append=TRUE,row.names=FALSE)
+    dbDisconnect(con)
+  }else{
+    con <- db.local()
+    qr <- paste("select * from SecuMain where ID="
+                ,QT(indexID))
+    re <- dbGetQuery(con,qr)
+    dbDisconnect(con)
+    if(nrow(re)>0) return("Already in local database!")
+
+    #part 1 update local SecuMain
+    con <- db.jy()
+    qr <- paste("select ID,InnerCode,CompanyCode,SecuCode,SecuAbbr,SecuMarket,
+                ListedSector,ListedState,JSID 'UpdateTime',SecuCode 'StockID_TS',
+                SecuCategory,ListedDate,SecuCode 'StockID_wind'
+                from SecuMain WHERE SecuCode=",
+                QT(substr(indexID,3,8)),
+                " and SecuCategory=4",sep='')
+    re1 <- sqlQuery(con,qr)
+    re1 <- transform(re1,ID=indexID,
+                     StockID_TS=ifelse(is.na(stockID2stockID(indexID,'local','ts')),substr(indexID,3,8),
+                                       stockID2stockID(indexID,'local','ts')),
+                     StockID_wind=ifelse(is.na(stockID2stockID(indexID,'local','wind')),substr(indexID,3,8),
+                                         stockID2stockID(indexID,'local','wind')))
+
+    #part 2 update local LC_IndexComponent
+    qr <- paste("SELECT 'EI'+s1.SecuCode 'IndexID','EQ'+s2.SecuCode 'SecuID',
+                convert(varchar(8),l.InDate,112) 'InDate',
+                convert(varchar(8),l.OutDate,112) 'OutDate',l.Flag,l.XGRQ 'UpdateTime'
+                FROM LC_IndexComponent l inner join SecuMain s1
+                on l.IndexInnerCode=s1.InnerCode and s1.SecuCode=",
+                QT(substr(indexID,3,8))," LEFT join JYDB.dbo.SecuMain s2
+                on l.SecuInnerCode=s2.InnerCode")
+    re2 <- sqlQuery(con,qr)
+    odbcCloseAll()
+
+    con <- db.local()
+    dbWriteTable(con,"SecuMain",re1,overwrite=FALSE,append=TRUE,row.names=FALSE)
+    dbWriteTable(con,"LC_IndexComponent",re2,overwrite=FALSE,append=TRUE,row.names=FALSE)
+    dbDisconnect(con)
+  }
+
+  return("Done!")
 }
 
 
@@ -19,10 +151,9 @@ brkQT <- function(series){
 
 
 
-
-#' table.factor.summary
+#' combine funcs table.IC and table.Ngroup.spread
 #'
-#' combine table.IC and table.Ngroup.spread
+#'
 #' @author Andrew Dow
 #' @param TSFR is a TSFR object
 #' @param N seprate the stocks into N group
@@ -62,9 +193,9 @@ table.factor.summary <- function(TSFR,N=10,fee=0.001){
 }
 
 
-#' gf.ln_mkt_cap
+#' get log(market_value) from local database
 #'
-#' get ln(market_value) in local db
+#'
 #' @author Andrew Dow
 #' @param TS is a TS object.
 #' @return a TSF object
@@ -81,9 +212,9 @@ gf.ln_mkt_cap <- function(TS){
 }
 
 
-#' gf.liquidity
+#' get liquidity factor
 #'
-#' get liquidity factor in local db
+#'
 #' @author Andrew Dow
 #' @param TS is a TS object.
 #' @return a TSF object
@@ -126,7 +257,7 @@ gf.liquidity <- function(TS){
 
 
 
-#' pureFactorTest
+#' get purified factor's portfolio
 #'
 #' remove style and industry risky factor,get the pure alpha factor's return
 #' @author Andrew Dow
@@ -146,9 +277,9 @@ gf.liquidity <- function(TS){
 #' factorIDs <- c("F000006","F000015","F000016")
 #' tmp <- buildFactorLists_lcfs(factorIDs,factorStd="norm")
 #' riskfactorLists <- c(riskfactorLists,tmp)
-#' factorRtn <- pureFactorTest(TSFR,riskfactorLists)
+#' factorRtn <- pure.factor.test(TSFR,riskfactorLists)
 #' @export
-pureFactorTest <- function(TSFR,riskfactorLists){
+pure.factor.test <- function(TSFR,riskfactorLists){
   TSFR <- TSFR[!is.na(TSFR$factorscore),]
   new.name <- colnames(TSFR)
 
@@ -194,5 +325,6 @@ pureFactorTest <- function(TSFR,riskfactorLists){
   colnames(portrtn) <- 'pureFactorPort'
   return(portrtn)
 }
+
 
 
