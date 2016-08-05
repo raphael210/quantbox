@@ -1,4 +1,10 @@
 buildSMB <- function(){
+  con <- db.local()
+  qr <- paste("select * from SecuMain where ID='EI000985'")
+  re <- dbGetQuery(con,qr)
+  dbDisconnect(con)
+  if(nrow(re)==0) add.index.lcdb(indexID="EI000985")
+
   RebDates <- getRebDates(as.Date('2005-01-31'),as.Date('2016-06-30'),'month')
   TS <- getTS(RebDates,'EI000985')
   TSF <- gf_lcfs(TS,'F000002')
@@ -69,6 +75,12 @@ buildSMB <- function(){
 
 
 buildHML <- function(){
+  con <- db.local()
+  qr <- paste("select * from SecuMain where ID='EI000985'")
+  re <- dbGetQuery(con,qr)
+  dbDisconnect(con)
+  if(nrow(re)==0) add.index.lcdb(indexID="EI000985")
+
   RebDates <- getRebDates(as.Date('2005-01-31'),as.Date('2016-06-30'),'month')
   TS <- getTS(RebDates,'EI000985')
   TSF <- gf_lcfs(TS,'F000006')
@@ -147,12 +159,12 @@ lcdb.update.FF3 <- function(){
     dbDisconnect(con)
     begT <- trday.nearby(intdate2r(begT),by = -1)
     endT <- Sys.Date()-1
-    if(begT>=endT){
+    if(begT>endT){
       return()
     }
     tmp.begT <- begT - lubridate::days(lubridate::day(begT))
     tmp.endT <- endT - lubridate::days(lubridate::day(endT))
-
+    if(tmp.begT==tmp.endT) tmp.begT <- trday.nearby(tmp.begT,by = 0)
     RebDates <- getRebDates(tmp.begT,tmp.endT,'month')
     TS <- getTS(RebDates,'EI000985')
     TSF <- gf_lcfs(TS,'F000002')
@@ -221,12 +233,12 @@ lcdb.update.FF3 <- function(){
     dbDisconnect(con)
     begT <- trday.nearby(intdate2r(begT),by = -1)
     endT <- Sys.Date()-1
-    if(begT>=endT){
+    if(begT>endT){
       return()
     }
     tmp.begT <- begT - lubridate::days(lubridate::day(begT))
     tmp.endT <- endT - lubridate::days(lubridate::day(endT))
-
+    if(tmp.begT==tmp.endT) tmp.begT <- trday.nearby(tmp.begT,by = 0)
     RebDates <- getRebDates(tmp.begT,tmp.endT,'month')
     TS <- getTS(RebDates,'EI000985')
     TSF <- gf_lcfs(TS,'F000006')
@@ -289,9 +301,127 @@ lcdb.update.FF3 <- function(){
     dbWriteTable(con,'QT_FactorScore_amtao',rtn,overwrite=F,append=T)
     dbDisconnect(con)
   }
+
+  con <- db.local()
+  qr <- paste("select * from SecuMain where ID='EI000985'")
+  re <- dbGetQuery(con,qr)
+  dbDisconnect(con)
+  if(nrow(re)==0) add.index.lcdb(indexID="EI000985")
+
   update.SMB()
   update.HML()
   return('Done!')
 }
 
 
+
+bank.factorscore <- function(type=c('update','build')){
+  tsInclude()
+  tsConnect()
+  if(type=='build'){
+    rebDates <- getRebDates(as.Date('2005-01-01'),as.Date('2016-06-30'),rebFreq = 'day')
+    TS <- getTS(rebDates,indexID = 'ES09440100')
+    TSF1 <- gf.PB_mrq(TS)
+    TSF1 <- na.omit(TSF1)
+    TSF1 <- TSF1[TSF1$factorscore>0,]
+    TSF1$factorName <- 'PB_mrq_'
+
+    TSF2 <- gf.F_ROE(TS)
+    TSF2 <- TSF2[,c("date","stockID","factorscore")]
+    TSF2 <- na.omit(TSF2)
+    TSF2$factorName <- 'F_ROE_1'
+    TSF <- rbind(TSF1,TSF2)
+    TSF$date <- rdate2int(TSF$date)
+    TSF <- TSF[,c("date","stockID","factorName","factorscore")]
+    con <- db.local()
+    dbWriteTable(con,'QT_FactorScore_amtao',TSF,overwrite=F,append=T,row.names=F)
+    dbDisconnect(con)
+
+  }else{
+    con <- db.local()
+    begT <- dbGetQuery(con,"select max(date) 'endDate' from QT_FactorScore_amtao where factorName='PB_mrq_'")[[1]]
+    dbDisconnect(con)
+    begT <- trday.nearby(intdate2r(begT),by = -1)
+    endT <- Sys.Date()-1
+    if(begT>endT){
+      return()
+    }
+
+    rebDates <- getRebDates(begT,endT,rebFreq = 'day')
+    TS <- getTS(rebDates,indexID = 'ES09440100')
+    TSF1 <- gf.PB_mrq(TS)
+    TSF1 <- na.omit(TSF1)
+    TSF1 <- TSF1[TSF1$factorscore>0,]
+    TSF1$factorName <- 'PB_mrq_'
+
+    TSF2 <- gf.F_ROE(TS)
+    TSF2 <- TSF2[,c("date","stockID","factorscore")]
+    TSF2 <- na.omit(TSF2)
+    TSF2$factorName <- 'F_ROE_1'
+    TSF <- rbind(TSF1,TSF2)
+    TSF$date <- rdate2int(TSF$date)
+    TSF <- TSF[,c("date","stockID","factorName","factorscore")]
+    con <- db.local()
+    dbWriteTable(con,'QT_FactorScore_amtao',TSF,overwrite=F,append=T,row.names=F)
+    dbDisconnect(con)
+  }
+
+}
+
+
+
+gf.PB_mrq_new <- function(TS,datasource=c('ts','local','quant')){
+  datasource <- match.arg(datasource)
+
+  if(datasource=='ts'){
+    funchar <- "StockPNA3_II()"
+    TSF <- TS.getTech_ts(TS,funchar)
+  }else if(datasource=='local'){
+    TSF <- gf_lcfs(TS,'F000006')
+  }else if(datasource=='quant'){
+    tmp <- brkQT(unique(TS$stockID))
+    qr <- paste("SELECT trddate 'date',code 'stockID',pbmrq 'PB_mrq_'
+                FROM fsfactor
+                where trddate>=",rdate2int(min(TS$date)),
+                " and trddate<=",rdate2int(max(TS$date)),
+                " and code in ",tmp)
+    con <- db.quant()
+    re <- sqlQuery(con,qr)
+    odbcClose(con)
+    re$date <- intdate2r(re$date)
+    TSF <- merge.x(TS,re)
+  }
+  return(TSF)
+}
+
+
+gf.F_ROE_new <- function(TS,datasource=c('local','cs')){
+  datasource <- match.arg(datasource)
+
+  if(datasource=='cs'){
+    tmp <- brkQT(substr(unique(TS$stockID),3,8))
+    qr <- paste("SELECT convert(varchar,CON_DATE,112) 'date',
+                'EQ'+STOCK_CODE 'stockID',C12 'F_ROE_1'
+                FROM CON_FORECAST_STK
+                where CON_TYPE=1 and RPT_TYPE=4 and STOCK_TYPE=1
+                and RPT_DATE=year(CON_DATE)
+                and STOCK_CODE in",tmp,
+                " and CON_DATE>=",QT(min(TS$date)),
+                " and CON_DATE<=",QT(max(TS$date)))
+    con <- db.cs()
+    re <- sqlQuery(con,qr)
+    odbcClose(con)
+    re$date <- intdate2r(re$date)
+    re <- plyr::arrange(re,date,stockID)
+    re <- reshape2::dcast(re,date~stockID,value.var = 'F_ROE_1')
+    re <- zoo::na.locf(re)
+    re <- reshape2::melt(re,id='date',variable.name='stockID',value.name = "F_ROE_1",na.rm=T)
+    re$date <- as.Date(re$date)
+    re$F_ROE_1 <- as.numeric(re$F_ROE_1)
+    TSF <- merge.x(TS,re)
+
+  }else if(datasource=='local'){
+    TSF <- gf_lcfs(TS,'F000011')
+  }
+  return(TSF)
+}

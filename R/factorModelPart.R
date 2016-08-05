@@ -433,7 +433,7 @@ gf.beta <- function(TS){
   re <- plyr::arrange(re,stockID,date)
 
   stocks <- unique(re$stockID)
-  #pb <- txtProgressBar(style = 3)
+  pb <- txtProgressBar(style = 3)
   for(j in 1:length(stocks)){
     tmp <- re[re$stockID==stocks[j],]
     beta.tmp <- zoo::rollapply(tmp[,c('indexRtn','stockRtn')], width = 250,
@@ -447,9 +447,9 @@ gf.beta <- function(TS){
     }else{
       beta <- rbind(beta,beta.tmp)
     }
-      #setTxtProgressBar(pb, j/length(stocks))
+    setTxtProgressBar(pb, j/length(stocks))
   }
-  #close(pb)
+  close(pb)
   beta$date <- intdate2r(beta$date)
   beta <- beta[beta$date %in% unique(TS$date),]
   TSF <- merge.x(TS,beta)
@@ -510,7 +510,7 @@ gf.IVR <- function(TS){
 
   tmp.stock <- unique(stockrtn$stockID)
   IVR <- data.frame()
-  #pb <- txtProgressBar(style = 3)
+  pb <- txtProgressBar(style = 3)
   nwin <- 22
   for(i in 1:length(tmp.stock)){
     tmp.rtn <- stockrtn[stockrtn$stockID==tmp.stock[i],]
@@ -531,9 +531,9 @@ gf.IVR <- function(TS){
                           stockID=as.character(tmp.stock[i]),
                           IVRValue=tmp)
     IVR <- rbind(IVR,IVR.tmp)
-    #setTxtProgressBar(pb, i/length(tmp.stock))
+    setTxtProgressBar(pb, i/length(tmp.stock))
   }
-  #close(pb)
+  close(pb)
   IVR <- IVR[!is.nan(IVR$IVRValue),]
   IVR$date <- intdate2r(IVR$date)
   colnames(IVR) <- c('date','stockID','factorscore')
@@ -544,17 +544,13 @@ gf.IVR <- function(TS){
 
 
 
-
-
-
-
 #' get purified factor's portfolio
 #'
 #' remove style and industry risky factor,get the pure alpha factor's return
 #' @author Andrew Dow
 #' @param TSFR is a TSFR objetc,factorscore should be standardized and remove NA values
 #' @param riskfactorLists is a list of risky factor,such as market value,beta,etc.
-#' @return pure factor return
+#' @return a list of pure factor portfolio's return and weight.
 #' @examples
 #' begT <- as.Date('2012-01-31')
 #' endT <- as.Date('2016-06-30')
@@ -568,7 +564,7 @@ gf.IVR <- function(TS){
 #' factorIDs <- c("F000006","F000015","F000016")
 #' tmp <- buildFactorLists_lcfs(factorIDs,factorStd="norm")
 #' riskfactorLists <- c(riskfactorLists,tmp)
-#' factorRtn <- pure.factor.test(TSFR,riskfactorLists)
+#' purefp <- pure.factor.test(TSFR,riskfactorLists)
 #' @export
 pure.factor.test <- function(TSFR,riskfactorLists){
   TSFR <- TSFR[!is.na(TSFR$factorscore),]
@@ -607,14 +603,16 @@ pure.factor.test <- function(TSFR,riskfactorLists){
     tmp.w <- diag(c(tmp.w),length(tmp.w))
     tmp.f <- solve(crossprod(tmp.x,tmp.w) %*% tmp.x) %*% crossprod(tmp.x,tmp.w)
     if(i==1){
-      portrtn=data.frame(date=dates[i+1],purefactor= (tmp.f[1,] %*% tmp.r))
+      portrtn <- data.frame(date=dates[i+1],purefactor= (tmp.f[1,] %*% tmp.r))
+      portwgt <- data.frame(date=dates[i],stockID=tmp.tsfr$stockID,wgt=tmp.f[1,])
     }else{
       portrtn <- rbind(portrtn,data.frame(date=dates[i+1],purefactor= (tmp.f[1,] %*% tmp.r)))
+      portwgt <- rbind(portwgt,data.frame(date=dates[i],stockID=tmp.tsfr$stockID,wgt=tmp.f[1,]))
     }
   }
   portrtn <- xts::xts(portrtn[,-1],order.by = portrtn[,1])
   colnames(portrtn) <- 'pureFactorPort'
-  return(portrtn)
+  return(list(portRtn=portrtn,portWgt=portwgt))
 }
 
 
