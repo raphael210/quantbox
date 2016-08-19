@@ -96,24 +96,22 @@ bank.rotation <- function(begDate,endDate=Sys.Date(),chgBar=0.2){
   }
 
   #get bench mark return
-  qr <- paste("SELECT convert(varchar,TradingDay,112) 'date'
-              ,ClosePrice 'close'
-              FROM QT_IndexQuote q,SecuMain s
-              where q.InnerCode=s.InnerCode and s.SecuCode='801780'
-              and q.TradingDay>=",QT(begDate)," and q.TradingDay<=",QT(max(TSR$date)),
-              " order by q.TradingDay")
-  bench <- sqlQuery(con,qr)
-  odbcClose(con)
-  bench$date <- intdate2r(bench$date)
-  bench$preclose <- c(NA,bench$close[-(nrow(bench))])
-  bench$indexRtn <- (bench$close/bench$preclose)-1
-  bench <- bench[,c('date','indexRtn')]
+  bench <- getIndexQuote_jy(index = 'EI801780',begT = begDate,endT = max(TSR$date),variables = c('pct_chg'))
+  bench <- bench[,c("date","pct_chg")]
+  colnames(bench) <- c('date','indexRtn')
 
   rtn <- merge.x(TSR[,c('date','periodrtn')],bench)
   colnames(rtn) <- c("date","indexRtn","bankRtn")
   rtn <- na.omit(rtn)
   rtn <- xts::xts(rtn[,-1],order.by = rtn[,1])
-  return(list(newData=bankPort,bankxts=rtn))
+
+  tmp <- max(bankPort$date)
+  TSF <- TSF[TSF$date==tmp,]
+  TSF <- plyr::arrange(TSF,factorscore)
+  TSF$mark <- c('')
+  tmp <- bankPort[bankPort$date==tmp,'stockID']
+  TSF[TSF$stockID==tmp,'mark'] <- 'hold'
+  return(list(newData=TSF,bankrtn=rtn))
 }
 
 
