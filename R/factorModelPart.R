@@ -350,16 +350,17 @@ gf.ln_mkt_cap <- function(TS){
 #'
 #' @author Andrew Dow
 #' @param TS is a TS object.
+#' @param nwin  time window
 #' @return a TSF object
 #' @examples
 #' RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2015-12-31'),'month')
 #' TS <- getTS(RebDates,'EI000300')
 #' TSF <- gf.liquidity(TS)
 #' @export
-gf.liquidity <- function(TS){
+gf.liquidity <- function(TS,nwin=21){
   check.TS(TS)
 
-  begT <- trday.nearby(min(TS$date),21)
+  begT <- trday.nearby(min(TS$date),nwin)
   endT <- max(TS$date)
   conn <- db.quant()
   qr <- paste("select t.TradingDay 'date',t.ID 'stockID',t.TurnoverVolume,t.NonRestrictedShares
@@ -371,11 +372,11 @@ gf.liquidity <- function(TS){
   re$TurnoverRate <- abs(re$TurnoverVolume/(re$NonRestrictedShares*10000))
   re <- re[,c("date","stockID","TurnoverRate")]
   tmp <- as.data.frame(table(re$stockID))
-  tmp <- tmp[tmp$Freq>=21,]
+  tmp <- tmp[tmp$Freq>=nwin,]
   re <- re[re$stockID %in% tmp$Var1,]
   re <- plyr::arrange(re,stockID,date)
 
-  re <- plyr::ddply(re,"stockID",plyr::mutate,factorscore=zoo::rollsum(TurnoverRate,21,fill=NA,align = 'right'))
+  re <- plyr::ddply(re,"stockID",plyr::mutate,factorscore=zoo::rollsum(TurnoverRate,nwin,fill=NA,align = 'right'))
   re <- subset(re,!is.na(re$factorscore))
   re <- subset(re,factorscore>=0.000001)
   re$factorscore <- log(re$factorscore)
@@ -394,16 +395,17 @@ gf.liquidity <- function(TS){
 #'
 #' @author Andrew Dow
 #' @param TS is a TS object.
+#' @param nwin  time window
 #' @return a TSF object
 #' @examples
 #' RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2015-12-31'),'month')
 #' TS <- getTS(RebDates,'EI000300')
 #' TSF <- gf.beta(TS)
 #' @export
-gf.beta <- function(TS){
+gf.beta <- function(TS, nwin=250){
   check.TS(TS)
 
-  begT <- trday.nearby(min(TS$date),250)
+  begT <- trday.nearby(min(TS$date),nwin)
   endT <- max(TS$date)
   qr <- paste("select t.TradingDay 'date',t.ID 'stockID',t.DailyReturn 'stockRtn'
               from QT_DailyQuote t where t.TradingDay>=",rdate2int(begT),
@@ -428,7 +430,7 @@ gf.beta <- function(TS){
   re <- merge.x(re,index)
   re <- re[!is.na(re$indexRtn),]
   tmp <- as.data.frame(table(re$stockID))
-  tmp <- tmp[tmp$Freq>=250,]
+  tmp <- tmp[tmp$Freq>=nwin,]
   re <- re[re$stockID %in% tmp$Var1,]
   re <- plyr::arrange(re,stockID,date)
 
@@ -436,10 +438,10 @@ gf.beta <- function(TS){
   pb <- txtProgressBar(style = 3)
   for(j in 1:length(stocks)){
     tmp <- re[re$stockID==stocks[j],]
-    beta.tmp <- zoo::rollapply(tmp[,c('indexRtn','stockRtn')], width = 250,
+    beta.tmp <- zoo::rollapply(tmp[,c('indexRtn','stockRtn')], width = nwin,
                           function(x) coef(lm(stockRtn ~ indexRtn, data = as.data.frame(x)))[2],
                           by.column = FALSE, align = "right")
-    beta.tmp <- data.frame(date=tmp$date[250:nrow(tmp)],
+    beta.tmp <- data.frame(date=tmp$date[nwin:nrow(tmp)],
                            stockID=stocks[j],
                            factorscore=beta.tmp)
     if(j==1){
@@ -464,17 +466,18 @@ gf.beta <- function(TS){
 #'
 #' @author Andrew Dow
 #' @param TS is a TS object.
+#' @param nwin  time window
 #' @return a TSF object
 #' @examples
 #' RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2015-12-31'),'month')
 #' TS <- getTS(RebDates,'EI000300')
 #' TSF <- gf.IVR(TS)
 #' @export
-gf.IVR <- function(TS){
+gf.IVR <- function(TS,nwin=22){
   check.TS(TS)
 
   lcdb.update.FF3()
-  begT <- trday.nearby(min(TS$date),22)
+  begT <- trday.nearby(min(TS$date),nwin)
   endT <- max(TS$date)
 
   con <- db.local()
@@ -511,7 +514,7 @@ gf.IVR <- function(TS){
   tmp.stock <- unique(stockrtn$stockID)
   IVR <- data.frame()
   pb <- txtProgressBar(style = 3)
-  nwin <- 22
+  nwin <- nwin
   for(i in 1:length(tmp.stock)){
     tmp.rtn <- stockrtn[stockrtn$stockID==tmp.stock[i],]
     tmp.FF3 <- merge(FF3,tmp.rtn[,c('date','stockRtn')],by='date',all.x=T)
