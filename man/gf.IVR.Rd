@@ -4,10 +4,12 @@
 \alias{gf.IVR}
 \title{get IVR factor}
 \usage{
-gf.IVR(TS)
+gf.IVR(TS, nwin = 22)
 }
 \arguments{
 \item{TS}{is a TS object.}
+
+\item{nwin}{time window}
 }
 \value{
 a TSF object

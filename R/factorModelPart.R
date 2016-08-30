@@ -339,7 +339,7 @@ table.factor.summary <- function(TSFR,N=10,fee=0.001){
 #' @export
 gf.ln_mkt_cap <- function(TS){
   check.TS(TS)
-  TSF <- gf_lcfs(TS, 'F000002')
+  TSF <- gf_lcfs(TS, 'F000017')
   TSF$factorscore <- ifelse(is.na(TSF$factorscore),NA,log(TSF$factorscore))
   return(TSF)
 }
@@ -350,7 +350,7 @@ gf.ln_mkt_cap <- function(TS){
 #'
 #' @author Andrew Dow
 #' @param TS is a TS object.
-#' @param nwin  time window
+#' @param nwin is time window
 #' @return a TSF object
 #' @examples
 #' RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2015-12-31'),'month')
@@ -376,7 +376,7 @@ gf.liquidity <- function(TS,nwin=21){
   re <- re[re$stockID %in% tmp$Var1,]
   re <- plyr::arrange(re,stockID,date)
 
-  re <- plyr::ddply(re,"stockID",plyr::mutate,factorscore=zoo::rollsum(TurnoverRate,nwin,fill=NA,align = 'right'))
+  re <- plyr::ddply(re,"stockID",plyr::mutate,factorscore=zoo::rollapply(TurnoverRate,21,sum,fill=NA,align = 'right'))
   re <- subset(re,!is.na(re$factorscore))
   re <- subset(re,factorscore>=0.000001)
   re$factorscore <- log(re$factorscore)
@@ -402,7 +402,7 @@ gf.liquidity <- function(TS,nwin=21){
 #' TS <- getTS(RebDates,'EI000300')
 #' TSF <- gf.beta(TS)
 #' @export
-gf.beta <- function(TS, nwin=250){
+gf.beta <- function(TS,nwin=250){
   check.TS(TS)
 
   begT <- trday.nearby(min(TS$date),nwin)
@@ -476,60 +476,47 @@ gf.beta <- function(TS, nwin=250){
 gf.IVR <- function(TS,nwin=22){
   check.TS(TS)
 
-  lcdb.update.FF3()
   begT <- trday.nearby(min(TS$date),nwin)
   endT <- max(TS$date)
+  indexs <- c('EI801811','EI801813','EI801831','EI801833')
+  FF3 <- getIndexQuote(indexs,begT,endT,"pct_chg",datasrc = 'jy')
+  FF3 <- reshape2::dcast(FF3,date~stockID,value.var = 'pct_chg')
+  FF3 <- transform(FF3,SMB=EI801813-EI801811,HML=EI801833-EI801831)
+  FF3 <- FF3[FF3$date>=begT & FF3$date<=endT,c('date','SMB','HML')]
 
-  con <- db.local()
-  qr <- paste("select date,factorScore 'SMB'
-              from QT_FactorScore_amtao where factorName='SMB'
-              and date>=",rdate2int(begT)," and date<=",rdate2int(endT))
-  SMB <- dbGetQuery(con,qr)
-  qr <- paste("select date,factorScore 'HML'
-              from QT_FactorScore_amtao where factorName='HML'
-              and date>=",rdate2int(begT)," and date<=",rdate2int(endT))
-  HML <- dbGetQuery(con,qr)
-  dbDisconnect(con)
-
-  FF3 <- merge(SMB,HML,by='date')
-  con <- db.jy()
-  qr <- paste("SELECT convert(varchar(8),q.[TradingDay],112) 'date',
-              q.ClosePrice/q.PrevClosePrice-1 'market'
-              FROM QT_IndexQuote q,SecuMain s
-              where q.InnerCode=s.InnerCode AND s.SecuCode='801003'
-              and q.TradingDay>=",QT(rdate2int(begT))," and q.TradingDay<=",QT(rdate2int(endT)),
-              " order by q.TradingDay")
-  index <- sqlQuery(con,qr)
-  FF3 <- merge(FF3,index,by='date')
+  tmp <- getIndexQuote('EI801003',begT,endT,variables = 'pct_chg',datasrc = 'jy')
+  tmp <- tmp[,c('date','pct_chg')]
+  colnames(tmp) <- c('date','market')
+  FF3 <- merge(FF3,tmp,by='date')
 
   qr <- paste("select t.TradingDay 'date',t.ID 'stockID',t.DailyReturn 'stockRtn'
               from QT_DailyQuote t where t.TradingDay>=",rdate2int(begT),
               " and t.TradingDay<=",rdate2int(endT))
   con <- db.quant()
   stockrtn <- sqlQuery(con,qr,stringsAsFactors=F)
-  odbcCloseAll()
+  odbcClose(con)
   stockrtn <- stockrtn[stockrtn$stockID %in% unique(TS$stockID),]
   stockrtn <- plyr::arrange(stockrtn,stockID,date)
+  stockrtn$date <- intdate2r(stockrtn$date)
 
   tmp.stock <- unique(stockrtn$stockID)
   IVR <- data.frame()
   pb <- txtProgressBar(style = 3)
-  nwin <- nwin
   for(i in 1:length(tmp.stock)){
     tmp.rtn <- stockrtn[stockrtn$stockID==tmp.stock[i],]
     tmp.FF3 <- merge(FF3,tmp.rtn[,c('date','stockRtn')],by='date',all.x=T)
-    tmp.FF3 <- tmp.FF3[!is.na(tmp.FF3$stockRtn),]
+    tmp.FF3 <- na.omit(tmp.FF3)
     if(nrow(tmp.FF3)<nwin) next
     tmp <- zoo::rollapply(tmp.FF3[,c("stockRtn","market","SMB","HML")], width =nwin,
-                     function(x){
-                       x <- as.data.frame(x)
-                       if(sum(x$stockRtn==0)>=5){
-                         result <- NaN
-                       }else{
-                         tmp.lm <- lm(stockRtn~market+SMB+HML, data = x)
-                         result <- 1-summary(tmp.lm)$r.squared
-                       }
-                       return(result)},by.column = FALSE, align = "right")
+                          function(x){
+                            x <- as.data.frame(x)
+                            if(sum(x$stockRtn==0)>=10){
+                              result <- NaN
+                            }else{
+                              tmp.lm <- lm(stockRtn~market+SMB+HML, data = x)
+                              result <- 1-summary(tmp.lm)$r.squared
+                            }
+                            return(result)},by.column = FALSE, align = "right")
     IVR.tmp <- data.frame(date=tmp.FF3$date[nwin:nrow(tmp.FF3)],
                           stockID=as.character(tmp.stock[i]),
                           IVRValue=tmp)
@@ -538,7 +525,6 @@ gf.IVR <- function(TS,nwin=22){
   }
   close(pb)
   IVR <- IVR[!is.nan(IVR$IVRValue),]
-  IVR$date <- intdate2r(IVR$date)
   colnames(IVR) <- c('date','stockID','factorscore')
 
   TSF <- merge.x(TS,IVR,by=c('date','stockID'))

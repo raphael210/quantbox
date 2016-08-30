@@ -4,10 +4,12 @@
 \alias{gf.beta}
 \title{get beta factor}
 \usage{
-gf.beta(TS)
+gf.beta(TS, nwin = 250)
 }
 \arguments{
 \item{TS}{is a TS object.}
+
+\item{nwin}{time window}
 }
 \value{
 a TSF object
