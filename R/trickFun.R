@@ -1,3 +1,12 @@
+#' alpha portfolio demo data
+#'
+#' part of index EI000905's alpha portfolio data set.
+#' @format A data frame with 1149 rows and 3 variables.
+"portdemo"
+
+
+
+
 #' bracket a series of string
 #'
 #'
@@ -96,24 +105,22 @@ bank.rotation <- function(begDate,endDate=Sys.Date(),chgBar=0.2){
   }
 
   #get bench mark return
-  qr <- paste("SELECT convert(varchar,TradingDay,112) 'date'
-              ,ClosePrice 'close'
-              FROM QT_IndexQuote q,SecuMain s
-              where q.InnerCode=s.InnerCode and s.SecuCode='801780'
-              and q.TradingDay>=",QT(begDate)," and q.TradingDay<=",QT(max(TSR$date)),
-              " order by q.TradingDay")
-  bench <- sqlQuery(con,qr)
-  odbcClose(con)
-  bench$date <- intdate2r(bench$date)
-  bench$preclose <- c(NA,bench$close[-(nrow(bench))])
-  bench$indexRtn <- (bench$close/bench$preclose)-1
-  bench <- bench[,c('date','indexRtn')]
+  bench <- getIndexQuote(index = 'EI801780',begT = begDate,endT = max(TSR$date),variables = c('pct_chg'),datasrc = 'jy')
+  bench <- bench[,c("date","pct_chg")]
+  colnames(bench) <- c('date','indexRtn')
 
   rtn <- merge.x(TSR[,c('date','periodrtn')],bench)
   colnames(rtn) <- c("date","indexRtn","bankRtn")
   rtn <- na.omit(rtn)
   rtn <- xts::xts(rtn[,-1],order.by = rtn[,1])
-  return(list(newData=bankPort,bankxts=rtn))
+
+  tmp <- max(bankPort$date)
+  TSF <- TSF[TSF$date==tmp,]
+  TSF <- plyr::arrange(TSF,factorscore)
+  TSF$mark <- c('')
+  tmp <- bankPort[bankPort$date==tmp,'stockID']
+  TSF[TSF$stockID==tmp,'mark'] <- 'hold'
+  return(list(newData=TSF,bankrtn=rtn))
 }
 
 
@@ -135,50 +142,3 @@ db.ts <- function(){
 
 
 
-#' get index quote from jydb
-#'
-#'
-#' @author Andrew Dow
-#' @param index is a vector of charactor
-#' @param begT is	begin date
-#' @param endT is	end date
-#' @param variables is a vector of charactor,such as pre_close,open,high,low,close,volume,amt,pct_chg.
-#' @return a data frame contains index quote.
-#' @examples
-#' index <- c('EI000300','EI000905')
-#' begT <- as.Date("2010-12-31")
-#' endT <- Sys.Date()
-#' variables <- c('pct_chg')
-#' re <- getIndexQuote_jy(index,begT,endT,variables)
-#' @export
-getIndexQuote_jy <- function(index, begT = as.Date("2010-12-31"), endT = Sys.Date(),variables){
-  consttable <- data.frame(varName=c("pre_close","open","high","low",
-                                     "close","volume","amt","pct_chg"),
-                           func=c('PrevClosePrice','OpenPrice','HighPrice',
-                                  'LowPrice','ClosePrice','TurnoverVolume',
-                                  'TurnoverValue','ClosePrice/PrevClosePrice-1'),stringsAsFactors = F)
-  vars <- consttable[consttable$varName %in% variables,]
-  vars <- paste(vars$func,QT(vars$varName), collapse=", ")
-  if(length(index)>1){
-    tmp <- brkQT(substr(index,3,8))
-    qr <- paste("SELECT CONVERT(varchar,TradingDay,112) 'date','EI'+s.SecuCode 'indexID',",
-                vars," FROM QT_IndexQuote q,SecuMain s
-                where q.InnerCode=s.InnerCode and s.SecuCode in",tmp,
-                "and q.TradingDay>=",QT(begT)," and q.TradingDay<=",QT(endT))
-    con <- db.jy()
-    re <- sqlQuery(con,qr)
-    odbcClose(con)
-  }else{
-    qr <- paste("SELECT CONVERT(varchar,TradingDay,112) 'date','EI'+s.SecuCode 'indexID',",
-                vars," FROM QT_IndexQuote q,SecuMain s
-          where q.InnerCode=s.InnerCode and s.SecuCode=",QT(substr(index,3,8)),
-                "and q.TradingDay>=",QT(begT)," and q.TradingDay<=",QT(endT))
-    con <- db.jy()
-    re <- sqlQuery(con,qr)
-    odbcClose(con)
-
-  }
-  re$date <- intdate2r(re$date)
-  re <- plyr::arrange(re,indexID,date)
-  return(re)
-}

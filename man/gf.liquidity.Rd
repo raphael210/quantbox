@@ -4,10 +4,12 @@
 \alias{gf.liquidity}
 \title{get liquidity factor}
 \usage{
-gf.liquidity(TS)
+gf.liquidity(TS, nwin = 21)
 }
 \arguments{
 \item{TS}{is a TS object.}
+
+\item{nwin}{is time window}
 }
 \value{
 a TSF object
