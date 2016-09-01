@@ -339,7 +339,7 @@ table.factor.summary <- function(TSFR,N=10,fee=0.001){
 #' @export
 gf.ln_mkt_cap <- function(TS){
   check.TS(TS)
-  TSF <- gf_lcfs(TS, 'F000017')
+  TSF <- gf_lcfs(TS, 'F000002')
   TSF$factorscore <- ifelse(is.na(TSF$factorscore),NA,log(TSF$factorscore))
   return(TSF)
 }
@@ -469,7 +469,7 @@ gf.beta <- function(TS,nwin=250){
 #' @param nwin  time window
 #' @return a TSF object
 #' @examples
-#' RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2015-12-31'),'month')
+#' RebDates <- getRebDates(as.Date('2015-06-30'),as.Date('2015-12-31'),'month')
 #' TS <- getTS(RebDates,'EI000300')
 #' TSF <- gf.IVR(TS)
 #' @export
