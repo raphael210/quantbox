@@ -1,3 +1,12 @@
+#' alpha portfolio demo data
+#'
+#' part of index EI000905's alpha portfolio data set.
+#' @format A data frame with 1149 rows and 3 variables.
+"portdemo"
+
+
+
+
 #' bracket a series of string
 #'
 #'
