@@ -105,7 +105,7 @@ bank.rotation <- function(begDate,endDate=Sys.Date(),chgBar=0.2){
   }
 
   #get bench mark return
-  bench <- getIndexQuote(index = 'EI801780',begT = begDate,endT = max(TSR$date),variables = c('pct_chg'),datasrc = 'jy')
+  bench <- getIndexQuote('EI801780',begT = begDate,endT = max(TSR$date),variables = c('pct_chg'),datasrc = 'jy')
   bench <- bench[,c("date","pct_chg")]
   colnames(bench) <- c('date','indexRtn')
 

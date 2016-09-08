@@ -18,7 +18,7 @@ a TSF object
 get IVR factor
 }
 \examples{
-RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2015-12-31'),'month')
+RebDates <- getRebDates(as.Date('2015-06-30'),as.Date('2015-12-31'),'month')
 TS <- getTS(RebDates,'EI000300')
 TSF <- gf.IVR(TS)
 }
