@@ -484,4 +484,48 @@ pure.factor.test <- function(TSFR,riskfactorLists){
 
 
 
+#' add weight to port
+#'
+#'
+#' @author Andrew Dow
+#' @param port is a  object.
+#' @param wgtType a character string, giving the weighting type of portfolio,which could be "fs"(floatingshares),"fssqrt"(sqrt of floatingshares).
+#' @param wgtmax weight upbar.
+#' @param ... for Category Weighted method
+#' @return return a Port object which are of dataframe class containing at least 3 cols("date","stockID","wgt").
+#' @seealso \code{\link[RFactorModel]{addwgt2port}}
+#' @examples
+#' df <- portdemo[,c('date','stockID')]
+#' port <- addwgt2port_amtao(df)
+#' port <- addwgt2port_amtao(df,wgtmax=0.1)
+#' @export
+addwgt2port_amtao <- function(port,wgtType=c('fs','fssqrt'),wgtmax=NULL,...){
+  wgtType <- match.arg(wgtType)
+  port <- TS.getTech(port,variables="free_float_shares")
+  if (wgtType=="fs") {
+    port <- ddply(port,"date",transform,wgt=free_float_shares/sum(free_float_shares,na.rm=TRUE))
+  } else {
+    port <- ddply(port,"date",transform,wgt=sqrt(free_float_shares)/sum(sqrt(free_float_shares),na.rm=TRUE))
+  }
+  port$free_float_shares <- NULL
+
+  if(!is.null(wgtmax)){
+    subfun <- function(wgt){
+      df <- data.frame(wgt=wgt,rank=seq(1,length(wgt)))
+      df <- arrange(df,plyr::desc(wgt))
+      j <- 1
+      while(max(df$wgt)>wgtmax){
+        df$wgt[j] <- wgtmax
+        df$wgt[(j+1):nrow(df)] <- df$wgt[(j+1):nrow(df)]/sum(df$wgt[(j+1):nrow(df)])*(1-j*wgtmax)
+        j <- j+1
+      }
+      df <- plyr::arrange(df,rank)
+      return(df$wgt)
+    }
+    port <- ddply(port,'date',here(transform),newwgt=subfun(wgt))
+    port$wgt <- port$newwgt
+    port$newwgt <- NULL
+  }
+  return(port)
+}
 
