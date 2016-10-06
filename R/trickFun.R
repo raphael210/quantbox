@@ -205,3 +205,111 @@ ladderNAV <- function(assetRtn,ruledf,rebalance=NULL){
 }
 
 
+#' update table QT_IndexTiming
+#'
+#'
+#' @author Andrew Dow
+#' @examples
+#' lcdb.update.QT_IndexTiming()
+#' @export
+lcdb.update.QT_IndexTiming<- function(){
+
+  subfun <- function(indexDate){
+    tmp <- brkQT(substr(indexDate$indexID,3,8))
+
+    #get index component
+    qr <- paste("select 'EI'+s1.SecuCode 'indexID','EQ'+s2.SecuCode 'stockID',
+                convert(varchar(8),l.InDate,112) 'InDate',
+                convert(varchar(8),l.OutDate,112) 'OutDate'
+                from LC_IndexComponent l
+                LEFT join SecuMain s1 on l.IndexInnerCode=s1.InnerCode
+                LEFT join SecuMain s2 on l.SecuInnerCode=s2.InnerCode
+                where s1.SecuCode in",tmp,
+                " order by s1.SecuCode,l.InDate")
+    con <- db.jy()
+    indexComp <- sqlQuery(con,qr)
+    odbcClose(con)
+    con <- db.local()
+    dbWriteTable(con, name="amtao_tmp", value=indexComp, row.names = FALSE, overwrite = TRUE)
+    dbDisconnect(con)
+
+    for(i in 1:nrow(indexDate)){
+      cat(i,':',as.character(indexDate$indexID[i]),rdate2int(indexDate$begT[i]),'\n')
+
+      tmpdate <- rdate2int(getRebDates(indexDate$begT[i],indexDate$endT[i],'day'))
+      tmpdate <- data.frame(date=tmpdate)
+      con <- db.local()
+      dbWriteTable(con, name="yrf_tmp", value=tmpdate, row.names = FALSE, overwrite = TRUE)
+      dbDisconnect(con)
+      qr <- paste("SELECT a.date as date, b.stockID from yrf_tmp a, amtao_tmp b
+                  where b.IndexID=", QT(indexDate$indexID[i]),
+                  "and b.InDate<=a.date and (b.OutDate>a.date or b.OutDate IS NULL)")
+      TS <- dbGetQuery(db.local(),qr)
+      TS$date <- intdate2r(TS$date)
+      if(i==1){
+        tmp <- getRebDates(min(indexDate$begT),max(indexDate$endT),'day')
+        tmp <- getTS(tmp,indexID = 'EI801003')
+        alldata <- gf.PE_ttm(tmp)
+        alldata <- dplyr::rename(alldata,pettm=factorscore)
+        tmp <- gf.PB_mrq(tmp)
+        tmp <- dplyr::rename(tmp,pbmrq=factorscore)
+        alldata <- merge(alldata,tmp,by=c('date','stockID'))
+      }
+
+      TSF <- merge.x(TS,alldata,by=c('date','stockID'))
+      TSF <- dplyr::filter(TSF,!is.na(pettm),!is.na(pbmrq))
+
+      #pe median
+      indexvalue <- plyr::ddply(TSF,'date',plyr::summarise,value=median(pettm))
+      indexvalue <- cbind(indexID=indexDate$indexID[i],indexName=indexDate$indexName[i],indexvalue,valtype='PE',caltype='median')
+
+      #pe mean
+      tmp <- TSF[,c('date','stockID','pettm')]
+      tmp <- dplyr::filter(tmp,pettm>0,pettm<1000)
+      colnames(tmp) <- c('date','stockID','factorscore')
+      tmp <- RFactorModel:::factor.outlier(tmp,3)
+      tmp <- plyr::ddply(tmp,'date',plyr::summarise,value=mean(factorscore))
+      tmp <- cbind(indexID=indexDate$indexID[i],indexName=indexDate$indexName[i],tmp,valtype='PE',caltype='mean')
+      indexvalue <- rbind(indexvalue,tmp)
+
+      #pb median
+      tmp <- plyr::ddply(TSF,'date',plyr::summarise,value=median(pbmrq))
+      tmp <- cbind(indexID=indexDate$indexID[i],indexName=indexDate$indexName[i],tmp,valtype='PB',caltype='median')
+      indexvalue <- rbind(indexvalue,tmp)
+
+      #pe mean
+      tmp <- TSF[,c('date','stockID','pbmrq')]
+      tmp <- tmp[tmp$pbmrq>0,]
+      colnames(tmp) <- c('date','stockID','factorscore')
+      tmp <- RFactorModel:::factor.outlier(tmp,3)
+      tmp <- plyr::ddply(tmp,'date',plyr::summarise,value=mean(factorscore))
+      tmp <- cbind(indexID=indexDate$indexID[i],indexName=indexDate$indexName[i],tmp,valtype='PB',caltype='mean')
+      indexvalue <- rbind(indexvalue,tmp)
+
+      if(i==1){
+        re <- indexvalue
+      }else{
+        re <- rbind(re,indexvalue)
+      }
+    }
+    return(re)
+  }#subfun finished
+
+  con <- db.local()
+  begT <- dbGetQuery(con,"select max(date) 'date' from QT_IndexTiming")
+  begT <- trday.nearby(intdate2r(begT$date),by=-1)
+  endT <- trday.nearby(Sys.Date(),by=1)
+  if(begT>endT){
+    return('Done!')
+  }else{
+    indexDate <- dbGetQuery(con,"select distinct indexID,indexName from QT_IndexTiming")
+    indexDate$begT <- begT
+    indexDate$endT <- endT
+
+    re <- subfun(indexDate)
+    re$date <- rdate2int(re$date)
+    dbWriteTable(con,'QT_IndexTiming',re,overwrite=F,append=T,row.names=FALSE)
+    dbDisconnect(con)
+    return('Done!')
+  }
+}
