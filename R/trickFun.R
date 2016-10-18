@@ -329,6 +329,7 @@ lcdb.update.QT_IndexTiming<- function(){
 #' w.start(showmenu = F)
 #' te <- fundTE(fundID='162411.OF',begT=as.Date('2013-06-28'))
 #' te <- fundTE(fundID='501018.OF',begT=as.Date('2016-06-28'))
+#' @export
 fundTE <- function(fundID,begT,endT=Sys.Date(),scale=250){
   if(missing(begT)){
     begT<-w.wss(fundID,'fund_setupdate')[[2]]
