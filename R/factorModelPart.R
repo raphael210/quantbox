@@ -313,3 +313,28 @@ addwgt2port_amtao <- function(port,wgtType=c('fs','fssqrt'),wgtmax=NULL,...){
   return(port)
 }
 
+
+#' remove suspension stock from TS
+#'
+#' @author Andrew Dow
+#' @param TS is a \bold{TS} object.
+#' @return return a \bold{TS} object.
+#' @examples
+#' RebDates <- getRebDates(as.Date('2013-03-17'),as.Date('2016-04-17'),'month')
+#' TS <- getTS(RebDates,'EI000985')
+#' TS <- rmSuspend(TS)
+#' @export
+rmSuspend <- function(TS){
+  TS$date <- rdate2int(TS$date)
+  con <- db.local()
+  dbWriteTable(con,'yrf_tmp',TS,overwrite=T,append=F,row.names=F)
+  qr <- "SELECT * FROM yrf_tmp y
+  LEFT JOIN QT_UnTradingDay u
+  ON y.date=u.TradingDay and y.stockID=u.ID"
+  re <- dbGetQuery(con,qr)
+  re <- re[is.na(re$ID),c("date","stockID")]
+  re$date <- intdate2r(re$date)
+  dbDisconnect(con)
+  return(re)
+}
+

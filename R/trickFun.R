@@ -313,3 +313,38 @@ lcdb.update.QT_IndexTiming<- function(){
     return('Done!')
   }
 }
+
+
+
+
+
+#' calculate fund's tracking error
+#'
+#' @param fundID is fund ID.
+#' @param begT is begin date.
+#' @param endT is end date, default value is \bold{today}.
+#' @param  scale is number of periods in a year,default value is 250.
+#' @examples
+#' library(WindR)
+#' w.start(showmenu = F)
+#' te <- fundTE(fundID='162411.OF',begT=as.Date('2013-06-28'))
+#' te <- fundTE(fundID='501018.OF',begT=as.Date('2016-06-28'))
+fundTE <- function(fundID,begT,endT=Sys.Date(),scale=250){
+  if(missing(begT)){
+    begT<-w.wss(fundID,'fund_setupdate')[[2]]
+    begT <- w.asDateTime(begT$FUND_SETUPDATE,asdate = T)
+  }
+
+  fundts <-w.wsd(fundID,"NAV_adj_return1",begT,endT,"Fill=Previous")[[2]]
+  tmp <- w.wss(fundID,'fund_benchindexcode')[[2]]
+  tmp <- tmp$FUND_BENCHINDEXCODE
+  benchts <-w.wsd(tmp,"pct_chg",begT,endT,"Fill=Previous")[[2]]
+  allts <- merge(fundts,benchts,by='DATETIME')
+  allts <- na.omit(allts)
+  allts <- transform(allts,NAV_ADJ_RETURN1=NAV_ADJ_RETURN1/100,PCT_CHG=PCT_CHG/100)
+  allts <- xts::xts(allts[,-1],order.by = allts[,1])
+  re <- round(PerformanceAnalytics::TrackingError(allts[,1],allts[,2],scale = scale),digits = 3)
+  return(re)
+}
+
+
