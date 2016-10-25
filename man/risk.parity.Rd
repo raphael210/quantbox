@@ -19,13 +19,15 @@ risk.parity(asset, rebFreq = "month", training = 250, riskcontri)
 risk parity
 }
 \examples{
-# get data from wind
-library(WindR)
-w.start(showmenu = F)
-te <- fundTE(fundID='162411.OF',begT=as.Date('2013-06-28'))
-te <- fundTE(fundID='501018.OF',begT=as.Date('2016-06-28'))
+suppressMessages(library(PortfolioAnalytics))
+suppressMessages(library(foreach))
+suppressMessages(library(iterators))
+suppressMessages(library(ROI))
+suppressMessages(library(ROI.plugin.quadprog))
+suppressMessages(library(ROI.plugin.glpk))
+asset <- rtndemo
+asset <- xts::xts(asset[,-1],order.by = asset[,1])
 
-# get data from jy
 
 }
 
