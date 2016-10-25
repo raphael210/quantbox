@@ -394,3 +394,33 @@ risk.parity <- function(asset,rebFreq = "month",training=250,riskcontri){
 
 
 }
+
+
+
+
+
+#' lcdb.update.CorpStockPool
+#'
+#' @param filenames a vector of filename with path.
+#' @examples
+#' filenames <- c('D:/sqlitedb/core.csv','D:/sqlitedb/preclose.csv')
+#' lcdb.update.CorpStockPool(filenames)
+#' @export
+lcdb.update.CorpStockPool <- function(filenames){
+  all <- data.frame()
+  for(i in 1:length(filenames)){
+    tmp <- read.csv(filenames[i])
+    all <- rbind(all,tmp)
+  }
+  colnames(all) <- c('stockID','stockName',"MiscellaneousItem",'SecuMarket','FundBelong','CorpStockPool',
+                     'InvestAdviceNum','DimensionID','DimensionName','Remark','Operator','AddDate','AddTime',
+                     'CheckOperator','HavePosition','ValidBeginDate','ValidEndDate','SecurityCate')
+  all$stockID <- stringr::str_pad(all$stockID,6,pad = '0')
+  all$stockID <- stringr::str_c('EQ',all$stockID,sep = '')
+  con <- db.local()
+  dbWriteTable(con,'CT_CorpStockPool',all,overwrite=T,row.names=F)
+  dbDisconnect(con)
+}
+
+
+
