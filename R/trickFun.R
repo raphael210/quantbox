@@ -7,13 +7,14 @@
 
 #' assets return demo dataset.
 #'
-#' A dataset containing stock index and bond index daily return data since 2009.
+#' A dataset containing stock index(000985.CSI), bond index(037.CS) and commodity(GC00.CMX) daily return data since 2009.
 #'
-#' @format A data frame with 1627 rows and 3 variables:
+#' @format A data frame with 2865 rows and 4 variables:
 #' \describe{
 #'   \item{date}{date type}
 #'   \item{stock}{stock index return}
 #'   \item{bond}{bond index return}
+#'   \item{commodity}{commodity index return}
 #' }
 "rtndemo"
 
@@ -349,3 +350,47 @@ fundTE <- function(fundID,begT,endT=Sys.Date(),scale=250){
 }
 
 
+
+#' risk parity
+#'
+#' @param fundID is fund ID.
+#' @param begT is begin date.
+#' @param endT is end date, default value is \bold{today}.
+#' @param  scale is number of periods in a year,default value is 250.
+#' @examples
+#' suppressMessages(library(PortfolioAnalytics))
+#' suppressMessages(library(foreach))
+#' suppressMessages(library(iterators))
+#' suppressMessages(library(ROI))
+#' suppressMessages(library(ROI.plugin.quadprog))
+#' suppressMessages(library(ROI.plugin.glpk))
+#' asset <- rtndemo
+#' asset <- xts::xts(asset[,-1],order.by = asset[,1])
+#'
+#'
+#' @export
+risk.parity <- function(asset,rebFreq = "month",training=250,riskcontri){
+  funds <- colnames(asset)
+  portf <- portfolio.spec(funds)
+  portf <- add.constraint(portf, type="full_investment")
+  portf <- add.constraint(portf, type="long_only")
+  portf <- add.objective(portf, type="return", name="mean")
+  portf <- add.objective(portf, type="risk_budget", name="ETL",
+     arguments=list(p=0.95), max_prisk=1/3, min_prisk=1/3)
+
+  # Quarterly rebalancing with 5 year training period
+  opt_maxret <- optimize.portfolio(R=asset, portfolio=portf,
+                                    optimize_method="ROI",
+                                    trace=TRUE)
+
+  # Monthly rebalancing with 5 year training period and 4 year rolling window
+  bt.opt2 <- optimize.portfolio.rebalancing(asset, portf,
+                                            optimize_method="ROI",
+                                            rebalance_on="months",
+                                            training_period=12,
+                                            rolling_window=12)
+
+  ## End(Not run)
+
+
+}

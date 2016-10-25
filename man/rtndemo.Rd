@@ -4,17 +4,18 @@
 \name{rtndemo}
 \alias{rtndemo}
 \title{assets return demo dataset.}
-\format{A data frame with 1627 rows and 3 variables:
+\format{A data frame with 2865 rows and 4 variables:
 \describe{
   \item{date}{date type}
   \item{stock}{stock index return}
   \item{bond}{bond index return}
+  \item{commodity}{commodity index return}
 }}
 \usage{
 rtndemo
 }
 \description{
-A dataset containing stock index and bond index daily return data since 2009.
+A dataset containing stock index(000985.CSI), bond index(037.CS) and commodity(GC00.CMX) daily return data since 2009.
 }
 \keyword{datasets}
 
