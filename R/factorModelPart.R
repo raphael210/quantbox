@@ -318,27 +318,102 @@ addwgt2port_amtao <- function(port,wgtType=c('fs','fssqrt'),wgtmax=NULL,...){
 #'
 #' @author Andrew Dow
 #' @param TS is a \bold{TS} object.
+#' @param type is suspension type.
 #' @return return a \bold{TS} object.
 #' @examples
 #' RebDates <- getRebDates(as.Date('2013-03-17'),as.Date('2016-04-17'),'month')
 #' TS <- getTS(RebDates,'EI000985')
 #' TS <- rmSuspend(TS)
 #' @export
-rmSuspend <- function(TS){
-  TS$date <- rdate2int(TS$date)
+rmSuspend <- function(TS,type=c('nextday','today','both')){
+  type <- match.arg(type)
+
   con <- db.local()
-  dbWriteTable(con,'yrf_tmp',TS,overwrite=T,append=F,row.names=F)
-  qr <- "SELECT * FROM yrf_tmp y
-  LEFT JOIN QT_UnTradingDay u
-  ON y.date=u.TradingDay and y.stockID=u.ID"
-  re <- dbGetQuery(con,qr)
-  re <- re[is.na(re$ID),c("date","stockID")]
-  re$date <- intdate2r(re$date)
+  if(type=='nextday'){
+    TS$tmpdate <- trday.nearby(TS$date,by=-1)
+    TS$tmpdate <- rdate2int(TS$tmpdate)
+    dbWriteTable(con,'yrf_tmp',TS[,c('tmpdate','stockID')],overwrite=T,append=F,row.names=F)
+    qr <- "SELECT * FROM yrf_tmp y
+    LEFT JOIN QT_UnTradingDay u
+    ON y.tmpdate=u.TradingDay and y.stockID=u.ID"
+    re <- dbGetQuery(con,qr)
+    re <- re[is.na(re$ID),c("tmpdate","stockID")]
+    re$flag <- 1
+    re <- dplyr::left_join(TS,re,by=c('tmpdate','stockID'))
+    re <- re[!is.na(re$flag),c('date','stockID')]
+
+  }else if(type=='today'){
+    TS$date <- rdate2int(TS$date)
+    dbWriteTable(con,'yrf_tmp',TS,overwrite=T,append=F,row.names=F)
+    qr <- "SELECT * FROM yrf_tmp y
+    LEFT JOIN QT_UnTradingDay u
+    ON y.date=u.TradingDay and y.stockID=u.ID"
+    re <- dbGetQuery(con,qr)
+    re <- re[is.na(re$ID),c("date","stockID")]
+    re$date <- intdate2r(re$date)
+  }else{
+    TS$date <- rdate2int(TS$date)
+    dbWriteTable(con,'yrf_tmp',TS,overwrite=T,append=F,row.names=F)
+    qr <- "SELECT * FROM yrf_tmp y
+    LEFT JOIN QT_UnTradingDay u
+    ON y.date=u.TradingDay and y.stockID=u.ID"
+    re <- dbGetQuery(con,qr)
+    re <- re[is.na(re$ID),c("date","stockID")]
+    re$date <- intdate2r(re$date)
+
+    TS <- re
+    TS$tmpdate <- trday.nearby(TS$date,by=-1)
+    TS$tmpdate <- rdate2int(TS$tmpdate)
+    dbWriteTable(con,'yrf_tmp',TS[,c('tmpdate','stockID')],overwrite=T,append=F,row.names=F)
+    qr <- "SELECT * FROM yrf_tmp y
+    LEFT JOIN QT_UnTradingDay u
+    ON y.tmpdate=u.TradingDay and y.stockID=u.ID"
+    re <- dbGetQuery(con,qr)
+    re <- re[is.na(re$ID),c("tmpdate","stockID")]
+    re$flag <- 1
+    re <- dplyr::left_join(TS,re,by=c('tmpdate','stockID'))
+    re <- re[!is.na(re$flag),c('date','stockID')]
+
+  }
+
   dbDisconnect(con)
   return(re)
 }
 
 
+
+
+#' remove  from TS
+#'
+#' @author Andrew Dow
+#' @param TS is a \bold{TS} object.
+#' @param type is negative events' type.
+#' @return return a \bold{TS} object.
+#' @examples
+#' RebDates <- getRebDates(as.Date('2013-03-17'),as.Date('2016-04-17'),'month')
+#' TS <- getTS(RebDates,'EI000985')
+#' TS <- rmNegativeEvents(TS)
+#' @export
+rmNegativeEvents <- function(TS,type=c('AnalystDown','ForcastReportLoss','ShareholderReduction','all')){
+  type <- match.arg(type)
+
+  if(type=='AnalystDown'){
+    # analyst draw down company's profit forcast
+    TSF <- gf.F_NP_chg(TS,span='w4')
+    TSF <- dplyr::filter(TSF,is.na(factorscore) | factorscore>(-1))
+    TS <- TSF[,c('date','stockID')]
+  }else if(type=='ForcastReportLoss'){
+
+  }else if(type=='ShareholderReduction'){
+
+
+  }else if(type=='all'){
+
+  }
+
+
+  return(TS)
+}
 
 
 
