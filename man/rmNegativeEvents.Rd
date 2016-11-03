@@ -2,10 +2,10 @@
 % Please edit documentation in R/factorModelPart.R
 \name{rmNegativeEvents}
 \alias{rmNegativeEvents}
-\title{remove  from TS}
+\title{remove negative event stock from TS}
 \usage{
-rmNegativeEvents(TS, type = c("AnalystDown", "ForcastReportLoss",
-  "ShareholderReduction", "all"))
+rmNegativeEvents(TS, type = c("AnalystDown", "PPUnFrozen",
+  "ShareholderReduction"))
 }
 \arguments{
 \item{TS}{is a \bold{TS} object.}
@@ -16,12 +16,12 @@ rmNegativeEvents(TS, type = c("AnalystDown", "ForcastReportLoss",
 return a \bold{TS} object.
 }
 \description{
-remove  from TS
+remove negative event stock from TS
 }
 \examples{
 RebDates <- getRebDates(as.Date('2013-03-17'),as.Date('2016-04-17'),'month')
 TS <- getTS(RebDates,'EI000985')
-TS <- rmNegativeEvents(TS)
+TSnew <- rmNegativeEvents(TS)
 }
 \author{
 Andrew Dow

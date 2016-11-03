@@ -353,23 +353,17 @@ fundTE <- function(fundID,begT,endT=Sys.Date(),scale=250){
 
 #' risk parity
 #'
-#' @param fundID is fund ID.
+#' @param asset is \bold{\link{xts}} object.
 #' @param begT is begin date.
 #' @param endT is end date, default value is \bold{today}.
-#' @param  scale is number of periods in a year,default value is 250.
 #' @examples
 #' suppressMessages(library(PortfolioAnalytics))
-#' suppressMessages(library(foreach))
-#' suppressMessages(library(iterators))
-#' suppressMessages(library(ROI))
-#' suppressMessages(library(ROI.plugin.quadprog))
-#' suppressMessages(library(ROI.plugin.glpk))
 #' asset <- rtndemo
 #' asset <- xts::xts(asset[,-1],order.by = asset[,1])
 #'
 #'
 #' @export
-risk.parity <- function(asset,rebFreq = "month",training=250,riskcontri){
+risk.parity <- function(asset,rebFreq = "month",training=250){
   funds <- colnames(asset)
   portf <- portfolio.spec(funds)
   portf <- add.constraint(portf, type="full_investment")

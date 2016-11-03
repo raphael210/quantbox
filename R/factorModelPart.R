@@ -330,50 +330,12 @@ rmSuspend <- function(TS,type=c('nextday','today','both')){
 
   con <- db.local()
   if(type=='nextday'){
-    TS$tmpdate <- trday.nearby(TS$date,by=-1)
-    TS$tmpdate <- rdate2int(TS$tmpdate)
-    dbWriteTable(con,'yrf_tmp',TS[,c('tmpdate','stockID')],overwrite=T,append=F,row.names=F)
-    qr <- "SELECT * FROM yrf_tmp y
-    LEFT JOIN QT_UnTradingDay u
-    ON y.tmpdate=u.TradingDay and y.stockID=u.ID"
-    re <- dbGetQuery(con,qr)
-    re <- re[is.na(re$ID),c("tmpdate","stockID")]
-    re$flag <- 1
-    re <- dplyr::left_join(TS,re,by=c('tmpdate','stockID'))
-    re <- re[!is.na(re$flag),c('date','stockID')]
-
+    re <- rmSuspend.nextday(TS)
   }else if(type=='today'){
-    TS$date <- rdate2int(TS$date)
-    dbWriteTable(con,'yrf_tmp',TS,overwrite=T,append=F,row.names=F)
-    qr <- "SELECT * FROM yrf_tmp y
-    LEFT JOIN QT_UnTradingDay u
-    ON y.date=u.TradingDay and y.stockID=u.ID"
-    re <- dbGetQuery(con,qr)
-    re <- re[is.na(re$ID),c("date","stockID")]
-    re$date <- intdate2r(re$date)
+    re <- rmSuspend.today(TS)
   }else{
-    TS$date <- rdate2int(TS$date)
-    dbWriteTable(con,'yrf_tmp',TS,overwrite=T,append=F,row.names=F)
-    qr <- "SELECT * FROM yrf_tmp y
-    LEFT JOIN QT_UnTradingDay u
-    ON y.date=u.TradingDay and y.stockID=u.ID"
-    re <- dbGetQuery(con,qr)
-    re <- re[is.na(re$ID),c("date","stockID")]
-    re$date <- intdate2r(re$date)
-
-    TS <- re
-    TS$tmpdate <- trday.nearby(TS$date,by=-1)
-    TS$tmpdate <- rdate2int(TS$tmpdate)
-    dbWriteTable(con,'yrf_tmp',TS[,c('tmpdate','stockID')],overwrite=T,append=F,row.names=F)
-    qr <- "SELECT * FROM yrf_tmp y
-    LEFT JOIN QT_UnTradingDay u
-    ON y.tmpdate=u.TradingDay and y.stockID=u.ID"
-    re <- dbGetQuery(con,qr)
-    re <- re[is.na(re$ID),c("tmpdate","stockID")]
-    re$flag <- 1
-    re <- dplyr::left_join(TS,re,by=c('tmpdate','stockID'))
-    re <- re[!is.na(re$flag),c('date','stockID')]
-
+    TS <- rmSuspend.today(TS)
+    re <- rmSuspend.nextday(TS)
   }
 
   dbDisconnect(con)
@@ -383,7 +345,7 @@ rmSuspend <- function(TS,type=c('nextday','today','both')){
 
 
 
-#' remove  from TS
+#' remove negative event stock from TS
 #'
 #' @author Andrew Dow
 #' @param TS is a \bold{TS} object.
@@ -392,28 +354,30 @@ rmSuspend <- function(TS,type=c('nextday','today','both')){
 #' @examples
 #' RebDates <- getRebDates(as.Date('2013-03-17'),as.Date('2016-04-17'),'month')
 #' TS <- getTS(RebDates,'EI000985')
-#' TS <- rmNegativeEvents(TS)
+#' TSnew <- rmNegativeEvents(TS)
 #' @export
-rmNegativeEvents <- function(TS,type=c('AnalystDown','ForcastReportLoss','ShareholderReduction','all')){
-  type <- match.arg(type)
+rmNegativeEvents <- function(TS,type=c('AnalystDown','PPUnFrozen','ShareholderReduction')){
+  if(missing(type)) type <- 'AnalystDown'
 
-  if(type=='AnalystDown'){
+  if('AnalystDown' %in% type){
     # analyst draw down company's profit forcast
-    TSF <- gf.F_NP_chg(TS,span='w4')
-    TSF <- dplyr::filter(TSF,is.na(factorscore) | factorscore>(-1))
-    TS <- TSF[,c('date','stockID')]
-  }else if(type=='ForcastReportLoss'){
+    TS <- rmNegativeEvents.AnalystDown(TS)
+  }
 
-  }else if(type=='ShareholderReduction'){
+  if('PPUnFrozen' %in% type){
+    #private placement offering unfrozen
+    TS <- rmNegativeEvents.PPUnFrozen(TS)
+  }
 
+  if('ShareholderReduction' %in% type){
 
-  }else if(type=='all'){
 
   }
 
 
   return(TS)
 }
+
 
 
 

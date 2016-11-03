@@ -671,3 +671,81 @@ lcdb.addindex.QT_IndexTiming<- function(indexset){
   return('Done!')
 
 }
+
+
+
+
+rmSuspend.nextday <- function(TS){
+
+  con <- db.local()
+  TS$tmpdate <- trday.nearby(TS$date,by=-1)
+  TS$tmpdate <- rdate2int(TS$tmpdate)
+  dbWriteTable(con,'yrf_tmp',TS[,c('tmpdate','stockID')],overwrite=T,append=F,row.names=F)
+  qr <- "SELECT * FROM yrf_tmp y
+  LEFT JOIN QT_UnTradingDay u
+  ON y.tmpdate=u.TradingDay and y.stockID=u.ID"
+  re <- dbGetQuery(con,qr)
+  re <- re[is.na(re$ID),c("tmpdate","stockID")]
+  re$flag <- 1
+  re <- dplyr::left_join(TS,re,by=c('tmpdate','stockID'))
+  re <- re[!is.na(re$flag),c('date','stockID')]
+
+  dbDisconnect(con)
+  return(re)
+}
+
+
+
+rmSuspend.today <- function(TS){
+
+  con <- db.local()
+  TS$date <- rdate2int(TS$date)
+  dbWriteTable(con,'yrf_tmp',TS,overwrite=T,append=F,row.names=F)
+  qr <- "SELECT * FROM yrf_tmp y
+  LEFT JOIN QT_UnTradingDay u
+  ON y.date=u.TradingDay and y.stockID=u.ID"
+  re <- dbGetQuery(con,qr)
+  re <- re[is.na(re$ID),c("date","stockID")]
+  re$date <- intdate2r(re$date)
+
+  dbDisconnect(con)
+  return(re)
+}
+
+
+
+rmNegativeEvents.AnalystDown <- function(TS){
+  TSF <- gf.F_NP_chg(TS,span='w4')
+  TSF <- dplyr::filter(TSF,is.na(factorscore) | factorscore>(-1))
+  TS <- TSF[,c('date','stockID')]
+  return(TS)
+}
+
+
+rmNegativeEvents.PPUnFrozen <- function(TS,bar=5){
+  TS$date_end <- trday.nearby(TS$date,-5)
+  begT <- min(TS$date)
+  endT <- max(TS$date_end)
+  con <- db.jy()
+  qr <- paste("SELECT CONVERT(VARCHAR,[StartDateForFloating],112) 'date',
+  'EQ'+s.SecuCode 'stockID'
+  FROM LC_SharesFloatingSchedule lc,SecuMain s
+  where lc.InnerCode=s.InnerCode
+  and lc.SourceType in (24,25) and Proportion1>=",bar,
+              " and StartDateForFloating>=",QT(begT), " and StartDateForFloating<=",QT(endT),
+              "order by lc.StartDateForFloating,s.SecuCode")
+  re <- sqlQuery(con,qr)
+  odbcClose(con)
+  re$date <- intdate2r(re$date)
+  re$date_from <- trday.nearby(re$date,4)
+  re <- re %>% rowwise() %>%
+    do(data.frame(date=getRebDates(.$date_from, .$date,'day'),
+                  stockID=rep(.$stockID,5)))
+  suppressWarnings(re <- dplyr::setdiff(TS[,c('date','stockID')],re))
+  return(re)
+}
+
+
+
+
+

@@ -4,27 +4,20 @@
 \alias{risk.parity}
 \title{risk parity}
 \usage{
-risk.parity(asset, rebFreq = "month", training = 250, riskcontri)
+risk.parity(asset, rebFreq = "month", training = 250)
 }
 \arguments{
-\item{fundID}{is fund ID.}
+\item{asset}{is \bold{\link{xts}} object.}
 
 \item{begT}{is begin date.}
 
 \item{endT}{is end date, default value is \bold{today}.}
-
-\item{scale}{is number of periods in a year,default value is 250.}
 }
 \description{
 risk parity
 }
 \examples{
 suppressMessages(library(PortfolioAnalytics))
-suppressMessages(library(foreach))
-suppressMessages(library(iterators))
-suppressMessages(library(ROI))
-suppressMessages(library(ROI.plugin.quadprog))
-suppressMessages(library(ROI.plugin.glpk))
 asset <- rtndemo
 asset <- xts::xts(asset[,-1],order.by = asset[,1])
 
