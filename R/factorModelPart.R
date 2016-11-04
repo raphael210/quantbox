@@ -314,6 +314,14 @@ addwgt2port_amtao <- function(port,wgtType=c('fs','fssqrt'),wgtmax=NULL,...){
 }
 
 
+
+
+# ===================== xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ======================
+# ===================== series of remove functions  ===========================
+# ===================== xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ======================
+
+
+
 #' remove suspension stock from TS
 #'
 #' @author Andrew Dow
@@ -323,22 +331,39 @@ addwgt2port_amtao <- function(port,wgtType=c('fs','fssqrt'),wgtmax=NULL,...){
 #' @examples
 #' RebDates <- getRebDates(as.Date('2013-03-17'),as.Date('2016-04-17'),'month')
 #' TS <- getTS(RebDates,'EI000985')
-#' TS <- rmSuspend(TS)
+#' TSnew <- rmSuspend(TS,type='today')
 #' @export
-rmSuspend <- function(TS,type=c('nextday','today','both')){
+rmSuspend <- function(TS,type=c('nextday','today','both'),datasrc=defaultDataSRC()){
   type <- match.arg(type)
 
-  con <- db.local()
-  if(type=='nextday'){
-    re <- rmSuspend.nextday(TS)
-  }else if(type=='today'){
-    re <- rmSuspend.today(TS)
-  }else{
-    TS <- rmSuspend.today(TS)
-    re <- rmSuspend.nextday(TS)
+  if(datasrc=='local'){
+    con <- db.local()
+    if(type=='nextday'){
+      re <- rmSuspend.nextday(TS)
+    }else if(type=='today'){
+      re <- rmSuspend.today(TS)
+    }else{
+      TS <- rmSuspend.today(TS)
+      re <- rmSuspend.nextday(TS)
+    }
+    dbDisconnect(con)
+  }else if(datasrc=='ts'){
+    if(type=='nextday'){
+      TS_next <- data.frame(date=trday.nearby(TS$date,by=-1), stockID=TS$stockID)
+      TS_next <- TS.getTech_ts(TS_next, funchar="istradeday4()",varname="trading")
+      re <- TS[TS_next$trading == 1, ]
+    }else if(type=='today'){
+      TS_today <- TS.getTech_ts(TS, funchar="istradeday4()",varname="trading")
+      re <- TS[TS_today$trading == 1, ]
+    }else{
+      TS_next <- data.frame(date=trday.nearby(TS$date,by=-1), stockID=TS$stockID)
+      TS_next <- TS.getTech_ts(TS_next, funchar="istradeday4()",varname="trading")
+      TS <- TS[TS_next$trading == 1, ]
+      TS_today <- TS.getTech_ts(TS, funchar="istradeday4()",varname="trading")
+      re <- TS[TS_today$trading == 1, ]
+    }
   }
 
-  dbDisconnect(con)
   return(re)
 }
 
@@ -379,5 +404,39 @@ rmNegativeEvents <- function(TS,type=c('AnalystDown','PPUnFrozen','ShareholderRe
 }
 
 
+#' remove price limits
+#'
+#' @author Andrew Dow
+#' @examples
+#' RebDates <- getRebDates(as.Date('2013-03-17'),as.Date('2016-04-17'),'month')
+#' TS <- getTS(RebDates,'EI000985')
+#' TSnew <- rmPriceLimit(TS,dateType='today',priceType='downLimit')
+#' @export
+rmPriceLimit <- function(TS,dateType=c('nextday','today'),priceType=c('upLimit','downLimit')){
+  dateType <- match.arg(dateType)
+  priceType <- match.arg(priceType)
+  if(dateType=='nextday'){
+    TStmp <- data.frame(date=trday.nearby(TS$date,by=-1), stockID=TS$stockID)
+    TStmp$date <- rdate2int(TStmp$date)
+  }else if(dateType=='today'){
+    TStmp <- TS
+    TStmp$date <- rdate2int(TStmp$date)
+  }
+  con <- db.local()
+  qr <- paste("SELECT u.TradingDay 'date',u.ID 'stockID',u.DailyReturn
+          FROM QT_DailyQuote u
+          where u.TradingDay in",paste("(",paste(unique(TStmp$date),collapse = ","),")"))
+  re <- dbGetQuery(con,qr)
+  dbDisconnect(con)
+  suppressWarnings(TStmp <- dplyr::left_join(TStmp,re,by=c('date','stockID')))
+  if(priceType=='upLimit'){
+    re <- TS[TStmp$DailyReturn<0.099, ]
+  }else if(priceType=='downLimit'){
+    re <- TS[TStmp$DailyReturn>(-0.099), ]
+  }
+
+  return(re)
+
+}
 
 

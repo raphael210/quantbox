@@ -4,7 +4,8 @@
 \alias{rmSuspend}
 \title{remove suspension stock from TS}
 \usage{
-rmSuspend(TS, type = c("nextday", "today", "both"))
+rmSuspend(TS, type = c("nextday", "today", "both"),
+  datasrc = defaultDataSRC())
 }
 \arguments{
 \item{TS}{is a \bold{TS} object.}
@@ -20,7 +21,7 @@ remove suspension stock from TS
 \examples{
 RebDates <- getRebDates(as.Date('2013-03-17'),as.Date('2016-04-17'),'month')
 TS <- getTS(RebDates,'EI000985')
-TS <- rmSuspend(TS)
+TSnew <- rmSuspend(TS,type='today')
 }
 \author{
 Andrew Dow
