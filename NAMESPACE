@@ -3,7 +3,6 @@
 export(add.index.lcdb)
 export(addwgt2port_amtao)
 export(bank.rotation)
-export(brkQT)
 export(db.ts)
 export(fill.indexquote000985)
 export(fundTE)
