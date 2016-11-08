@@ -4,7 +4,7 @@
 \alias{fill.indexquote000985}
 \title{fill.indexquote000985}
 \usage{
-fill.indexquote000985()
+fill.indexquote000985(windCode = "000985.CSI")
 }
 \description{
 fill.indexquote000985

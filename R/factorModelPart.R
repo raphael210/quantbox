@@ -295,10 +295,11 @@ lcdb.update.IndexQuote_000985E <- function(){
 #' w.start(showmenu = F)
 #' fill.indexquote000985()
 #' @export
-fill.indexquote000985 <- function(){
+fill.indexquote000985 <- function(windCode='000985.CSI'){
 
   con <- db.local()
-  qr <- "select ID,DailyReturn from QT_IndexQuote where ID='EI000985'"
+  indexCode <- paste('EI',substr(windCode,1,6),sep = '')
+  qr <- paste("select ID,DailyReturn from QT_IndexQuote where ID=",QT(indexCode))
   re <- dbGetQuery(con,qr)
   if(nrow(re)>0){
     return('Already in database!')
@@ -306,16 +307,22 @@ fill.indexquote000985 <- function(){
     qr <- "select max(TradingDay) from QT_IndexQuote"
     endT <- dbGetQuery(con,qr)[[1]]
     endT <- intdate2r(endT)
-    index<-w.wsd("000985.CSI","pre_close,open,high,low,close,volume,amt,dealnum,pct_chg","2005-01-04",endT)[[2]]
+    index<-w.wsd(windCode,"pre_close,open,high,low,close,volume,amt,dealnum,pct_chg","2005-01-04",endT)[[2]]
     colnames(index) <- c("TradingDay","PrevClosePrice","OpenPrice","HighPrice", "LowPrice",
                          "ClosePrice","TurnoverVolume","TurnoverValue","TurnoverDeals","ChangePCT")
 
+    #get innercode
+    qr <- paste("SELECT InnerCode FROM SecuMain
+    where SecuCode=",QT(substr(windCode,1,6))," and SecuCategory=4")
+    innercode <- queryAndClose.odbc(db.jy(),qr)[[1]]
+
+
     index <- transform(index,TradingDay=rdate2int(TradingDay),
-                       InnerCode=c(14110),
+                       InnerCode=c(innercode),
                        DailyReturn=ChangePCT/100,
                        NegotiableMV=c(NA),
                        UpdateTime=c(Sys.Date()),
-                       ID=c('EI000985'))
+                       ID=c(indexCode))
     index <- index[,c("InnerCode","TradingDay","PrevClosePrice","OpenPrice","HighPrice",
                       "LowPrice","ClosePrice","TurnoverVolume","TurnoverValue","TurnoverDeals",
                       "ChangePCT","NegotiableMV","UpdateTime","DailyReturn","ID")]
@@ -611,6 +618,7 @@ rmPriceLimit <- function(TS,dateType=c('nextday','today'),priceType=c('upLimit',
   re <- dbGetQuery(con,qr)
   dbDisconnect(con)
   suppressWarnings(TStmp <- dplyr::left_join(TStmp,re,by=c('date','stockID')))
+  TStmp <- na.omit(TStmp)
   if(priceType=='upLimit'){
     re <- TS[TStmp$DailyReturn<0.099, ]
   }else if(priceType=='downLimit'){
