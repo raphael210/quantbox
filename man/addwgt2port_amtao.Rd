@@ -4,7 +4,8 @@
 \alias{addwgt2port_amtao}
 \title{add weight to port}
 \usage{
-addwgt2port_amtao(port, wgtType = c("fs", "fssqrt"), wgtmax = NULL, ...)
+addwgt2port_amtao(port, wgtType = c("fs", "fssqrt", "ffsMV"), wgtmax = NULL,
+  ...)
 }
 \arguments{
 \item{port}{is a  object.}
@@ -22,9 +23,9 @@ return a Port object which are of dataframe class containing at least 3 cols("da
 add weight to port
 }
 \examples{
-df <- portdemo[,c('date','stockID')]
-port <- addwgt2port_amtao(df)
-port <- addwgt2port_amtao(df,wgtmax=0.1)
+port <- portdemo[,c('date','stockID')]
+port <- addwgt2port_amtao(port)
+port <- addwgt2port_amtao(port,wgtmax=0.1)
 }
 \author{
 Andrew Dow

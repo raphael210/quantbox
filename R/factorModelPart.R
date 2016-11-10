@@ -49,6 +49,7 @@ add.index.lcdb <- function(indexID){
     order by s1.SecuCode,l.InDate"
     re <- sqlQuery(con,qr,stringsAsFactors=F)
     indexComp <- re[re$IndexID=='EI000985',c("IndexID","SecuID","InDate","OutDate","Flag","UpdateTime")]
+    indexComp <- indexComp[substr(indexComp$SecuID,1,3) %in% c('EQ0','EQ3','EQ6'),]
 
     tmp <- re[re$IndexID=='EI801003' & re$InDate<20110802,]
     tmp <- tmp[substr(tmp$SecuID,1,3) %in% c('EQ0','EQ3','EQ6'),]
@@ -140,9 +141,10 @@ add.index.lcdb <- function(indexID){
                 convert(varchar(8),l.OutDate,112) 'OutDate',l.Flag,l.XGRQ 'UpdateTime'
                 FROM LC_IndexComponent l inner join SecuMain s1
                 on l.IndexInnerCode=s1.InnerCode and s1.SecuCode=",
-                QT(substr(indexID,3,8))," LEFT join JYDB.dbo.SecuMain s2
+                QT(substr(indexID,3,8))," LEFT join SecuMain s2
                 on l.SecuInnerCode=s2.InnerCode")
     indexComp <- sqlQuery(con,qr)
+    indexComp <- indexComp[substr(indexComp$SecuID,1,3) %in% c('EQ0','EQ3','EQ6'),]
     odbcCloseAll()
 
     con <- db.local()
@@ -153,188 +155,6 @@ add.index.lcdb <- function(indexID){
 
   return("Done!")
 }
-
-
-#' lcdb.init.IndexQuote_000985E
-#'
-#' @examples
-#' lcdb.init.IndexQuote_000985E()
-#' @export
-lcdb.init.IndexQuote_000985E <- function(){
-  con <- db.local()
-  qr <- "select ID,DailyReturn from QT_IndexQuote where ID='EI000985E'"
-  re <- dbGetQuery(con,qr)
-  if(nrow(re)>0){
-    return('Already in database!')
-  }else{
-    qr <- "select max(TradingDay) from QT_IndexQuote"
-    endT <- dbGetQuery(con,qr)[[1]]
-    endT <- intdate2r(endT)
-    begT <- as.Date('2005-01-04')
-    dates <- getRebDates(begT,endT)
-    TS <- getTS(dates,indexID = 'EI000985')
-
-    index <- data.frame()
-    for(i in 1:(length(dates)-1)){
-      tmp.dates <- getRebDates(dates[i],dates[i+1],rebFreq = 'day')
-      tmp.dates <- tmp.dates[-length(tmp.dates)]
-      cat('calculating',rdate2int(min(tmp.dates)),"~",rdate2int(max(tmp.dates)),'...\n')
-      qr <- paste("select TradingDay,ID,DailyReturn from QT_DailyQuote
-                where TradingDay>=",rdate2int(min(tmp.dates))," and TradingDay<=",rdate2int(max(tmp.dates)))
-      quotedf <- dbGetQuery(con,qr)
-      quotedf$TradingDay <- intdate2r(quotedf$TradingDay)
-      tmp.TS <- TS[TS$date==dates[i],]
-      quotedf <- quotedf[quotedf$ID %in% tmp.TS$stockID,]
-
-      tmp <- quotedf %>% group_by(TradingDay) %>%
-        summarise(DailyReturn = mean(DailyReturn, na.rm = TRUE))
-      index <- rbind(index,tmp)
-    }
-
-    tmp <- xts::xts(index$DailyReturn,order.by = index$TradingDay)
-    tmp <- WealthIndex(tmp)
-    close <- data.frame(TradingDay=zoo::index(tmp),close=zoo::coredata(tmp)*1000,row.names =NULL)
-    colnames(close) <- c('TradingDay','ClosePrice')
-    index <- merge(index,close,by='TradingDay')
-    index <- transform(index,TradingDay=rdate2int(TradingDay),
-                       InnerCode=c(1000985),
-                       PrevClosePrice=c(NA,index$ClosePrice[-(nrow(index))]),
-                       OpenPrice=c(NA),
-                       HighPrice=c(NA),
-                       LowPrice=c(NA),
-                       TurnoverVolume=c(NA),
-                       TurnoverValue=c(NA),
-                       TurnoverDeals=c(NA),
-                       ChangePCT=DailyReturn*100,
-                       NegotiableMV=c(NA),
-                       UpdateTime=c(Sys.Date()),
-                       ID=c('EI000985E'))
-    index <- index[,c("InnerCode","TradingDay","PrevClosePrice","OpenPrice","HighPrice",
-                       "LowPrice","ClosePrice","TurnoverVolume","TurnoverValue","TurnoverDeals",
-                       "ChangePCT","NegotiableMV","UpdateTime","DailyReturn","ID")]
-    dbWriteTable(con,'QT_IndexQuote',index,overwrite=F,append=T,row.names=F)
-  }
-  dbDisconnect(con)
-  return('Done!')
-}
-
-
-#' lcdb.update.IndexQuote_000985E
-#'
-#' @examples
-#' lcdb.update.IndexQuote_000985E()
-#' @export
-lcdb.update.IndexQuote_000985E <- function(){
-  con <- db.local()
-
-  qr <- "select max(TradingDay) from QT_DailyQuote"
-  endT <- dbGetQuery(con,qr)[[1]]
-  endT <- intdate2r(endT)
-  qr <- "select max(TradingDay) from QT_IndexQuote where ID='EI000985E'"
-  begT <- dbGetQuery(con,qr)[[1]]
-  qr <- paste("select * from QT_IndexQuote where ID='EI000985E' and TradingDay=",begT)
-  tmpdata <- dbGetQuery(con,qr)
-  begT <- intdate2r(begT)
-  begT <- trday.nearby(begT,by=-1)
-
-  if(begT>endT){
-    return('Done!')
-  }else{
-    TS <- getTS(begT,indexID = 'EI000985')
-
-    tmp.dates <- getRebDates(begT,endT,rebFreq = 'day')
-
-    cat('calculating',rdate2int(min(tmp.dates)),"~",rdate2int(max(tmp.dates)),'...\n')
-    qr <- paste("select TradingDay,ID,DailyReturn from QT_DailyQuote
-                where TradingDay>=",rdate2int(min(tmp.dates))," and TradingDay<=",rdate2int(max(tmp.dates)))
-    quotedf <- dbGetQuery(con,qr)
-    quotedf$TradingDay <- intdate2r(quotedf$TradingDay)
-    quotedf <- quotedf[quotedf$ID %in% TS$stockID,]
-
-    index <- quotedf %>% group_by(TradingDay) %>%
-      summarise(DailyReturn = mean(DailyReturn, na.rm = TRUE))
-
-
-    tmp <- xts::xts(index$DailyReturn,order.by = index$TradingDay)
-    tmp <- WealthIndex(tmp)
-    close <- data.frame(TradingDay=zoo::index(tmp),close=zoo::coredata(tmp)*tmpdata$ClosePrice,row.names =NULL)
-    colnames(close) <- c('TradingDay','ClosePrice')
-    index <- merge(index,close,by='TradingDay')
-    index <- transform(index,TradingDay=rdate2int(TradingDay),
-                       InnerCode=c(1000985),
-                       PrevClosePrice=c(NA,index$ClosePrice[-(nrow(index))]),
-                       OpenPrice=c(NA),
-                       HighPrice=c(NA),
-                       LowPrice=c(NA),
-                       TurnoverVolume=c(NA),
-                       TurnoverValue=c(NA),
-                       TurnoverDeals=c(NA),
-                       ChangePCT=DailyReturn*100,
-                       NegotiableMV=c(NA),
-                       UpdateTime=c(Sys.Date()),
-                       ID=c('EI000985E'))
-    index <- index[,c("InnerCode","TradingDay","PrevClosePrice","OpenPrice","HighPrice",
-                      "LowPrice","ClosePrice","TurnoverVolume","TurnoverValue","TurnoverDeals",
-                      "ChangePCT","NegotiableMV","UpdateTime","DailyReturn","ID")]
-    index$PrevClosePrice[1] <- tmpdata$ClosePrice
-    dbWriteTable(con,'QT_IndexQuote',index,overwrite=F,append=T,row.names=F)
-  }
-
-  dbDisconnect(con)
-  return('Done!')
-
-}
-
-
-
-#' fill.indexquote000985
-#'
-#'
-#' @examples
-#' library(WindR)
-#' w.start(showmenu = F)
-#' fill.indexquote000985()
-#' @export
-fill.indexquote000985 <- function(windCode='000985.CSI'){
-
-  con <- db.local()
-  indexCode <- paste('EI',substr(windCode,1,6),sep = '')
-  qr <- paste("select ID,DailyReturn from QT_IndexQuote where ID=",QT(indexCode))
-  re <- dbGetQuery(con,qr)
-  if(nrow(re)>0){
-    return('Already in database!')
-  }else{
-    qr <- "select max(TradingDay) from QT_IndexQuote"
-    endT <- dbGetQuery(con,qr)[[1]]
-    endT <- intdate2r(endT)
-    index<-w.wsd(windCode,"pre_close,open,high,low,close,volume,amt,dealnum,pct_chg","2005-01-04",endT)[[2]]
-    colnames(index) <- c("TradingDay","PrevClosePrice","OpenPrice","HighPrice", "LowPrice",
-                         "ClosePrice","TurnoverVolume","TurnoverValue","TurnoverDeals","ChangePCT")
-
-    #get innercode
-    qr <- paste("SELECT InnerCode FROM SecuMain
-    where SecuCode=",QT(substr(windCode,1,6))," and SecuCategory=4")
-    innercode <- queryAndClose.odbc(db.jy(),qr)[[1]]
-
-
-    index <- transform(index,TradingDay=rdate2int(TradingDay),
-                       InnerCode=c(innercode),
-                       DailyReturn=ChangePCT/100,
-                       NegotiableMV=c(NA),
-                       UpdateTime=c(Sys.Date()),
-                       ID=c(indexCode))
-    index <- index[,c("InnerCode","TradingDay","PrevClosePrice","OpenPrice","HighPrice",
-                      "LowPrice","ClosePrice","TurnoverVolume","TurnoverValue","TurnoverDeals",
-                      "ChangePCT","NegotiableMV","UpdateTime","DailyReturn","ID")]
-    dbWriteTable(con,'QT_IndexQuote',index,overwrite=F,append=T,row.names=F)
-  }
-
-  dbDisconnect(con)
-  return('Done!')
-}
-
-
-
 
 
 
@@ -468,19 +288,26 @@ pure.factor.test <- function(TSFR,riskfactorLists){
 #' @return return a Port object which are of dataframe class containing at least 3 cols("date","stockID","wgt").
 #' @seealso \code{\link[RFactorModel]{addwgt2port}}
 #' @examples
-#' df <- portdemo[,c('date','stockID')]
-#' port <- addwgt2port_amtao(df)
-#' port <- addwgt2port_amtao(df,wgtmax=0.1)
+#' port <- portdemo[,c('date','stockID')]
+#' port <- addwgt2port_amtao(port)
+#' port <- addwgt2port_amtao(port,wgtmax=0.1)
 #' @export
-addwgt2port_amtao <- function(port,wgtType=c('fs','fssqrt'),wgtmax=NULL,...){
+addwgt2port_amtao <- function(port,wgtType=c('fs','fssqrt','ffsMV'),wgtmax=NULL,...){
   wgtType <- match.arg(wgtType)
-  port <- TS.getTech(port,variables="free_float_shares")
-  if (wgtType=="fs") {
-    port <- ddply(port,"date",transform,wgt=free_float_shares/sum(free_float_shares,na.rm=TRUE))
-  } else {
-    port <- ddply(port,"date",transform,wgt=sqrt(free_float_shares)/sum(sqrt(free_float_shares),na.rm=TRUE))
+  if(wgtType %in% c('fs','fssqrt')){
+    port <- TS.getTech(port,variables="free_float_shares")
+    if (wgtType=="fs") {
+      port <- plyr::ddply(port,"date",transform,wgt=free_float_shares/sum(free_float_shares,na.rm=TRUE))
+    } else {
+      port <- plyr::ddply(port,"date",transform,wgt=sqrt(free_float_shares)/sum(sqrt(free_float_shares),na.rm=TRUE))
+    }
+    port$free_float_shares <- NULL
+  }else{
+    port <- gf.free_float_sharesMV(port)
+    port <- plyr::ddply(port,"date",transform,wgt=factorscore/sum(factorscore,na.rm=TRUE))
+    port$factorscore <- NULL
   }
-  port$free_float_shares <- NULL
+
 
   if(!is.null(wgtmax)){
     subfun <- function(wgt){
@@ -501,6 +328,130 @@ addwgt2port_amtao <- function(port,wgtType=c('fs','fssqrt'),wgtmax=NULL,...){
   }
   return(port)
 }
+
+
+
+
+
+#' getIndexCompWgtNew
+#'
+#' get the components and wgts of the specific index on certain day.
+#' @param indexID the stockID of the index
+#' @param endT a vector of class \code{Date}. IF missing, then get the latest components.
+#' @param datasrc
+#' @return a dataframe, with cols: "date", "stockID","wgt".
+#' @export
+#' @family getComps functions
+#' @examples
+#' tmp <- getIndexCompWgtNew("EI000300") # get the latest components
+#' tmp <- getIndexCompWgtNew("EI000985",as.Date("2012-12-31")) # get the components on single day
+#' tmp <- getIndexCompWgtNew("EI000985",as.Date(c("2011-12-31","2012-12-31"))) # get the components on multi-days
+getIndexCompWgtNew <- function(indexID="EI000300",endT,datasrc=defaultDataSRC()){
+
+  if(missing(endT)) endT <- trday.nearby(Sys.Date(),by=1)  # if endT missing, get the nearest wgt data.
+  endT <- trday.nearest(endT)    # if endT is not tradingday, get the nearest trading days.
+
+  trday.nearbyinDB <- function(indexID,endT,datasrc){
+    # sometimes, the index-component-weight in database is not daily data, this function is used to get nearest date on which the weight data is available.
+    daymat <- data.frame(oldday=endT)
+    endT <- rdate2int(endT)
+    qr <- paste(
+      "SELECT DISTINCT EndDate
+      FROM LC_IndexComponentsWeight
+      where IndexID=",QT(indexID),"order by EndDate"
+    )
+    if(datasrc=="quant"){
+      con <- db.quant()
+      re <- sqlQuery(con,query=qr)
+      odbcClose(con)
+    } else if (datasrc=="local"){
+      con <- db.local()
+      re <- dbGetQuery(con,qr)
+      dbDisconnect(con)
+    } else if (datasrc=="jy"){
+      con <- db.jy()
+      re <- sqlQuery(con,query=qr)
+      odbcClose(con)
+    }
+
+    if(nrow(re)==0){
+      return(0)
+    }
+
+    if(min(endT)<min(re$EndDate)){
+      return(0)
+    } else{
+      endT<- re[findInterval(endT,re$EndDate),]
+      daymat$newday <- endT
+      return(daymat)
+    }
+  }
+  daymat <- trday.nearbyinDB(indexID,endT,datasrc)
+  if(is.numeric(daymat)){
+    TS <- getTS(endT,indexID)
+    TSF <- gf.free_float_sharesMV(TS)
+    re <- plyr::ddply(TSF,"date",transform,wgt=factorscore/sum(factorscore,na.rm=TRUE))
+    re <- re[,c("date","stockID","wgt" )]
+    return(re)
+  }
+  endT <- daymat$newday
+
+
+  if(datasrc %in% c("quant","local")){
+    tmpdat <- data.frame(endT=endT)
+    qr <- paste("SELECT a.endT as date, b.SecuID as stockID, Weight/100 as wgt
+                from yrf_tmp a, LC_IndexComponentsWeight b
+                where b.IndexID=", QT(indexID),
+                "and a.endT=b.EndDate")
+    if(datasrc=="quant"){
+      con <- db.quant()
+      sqlDrop(con, sqtable="yrf_tmp", errors=FALSE)
+      sqlSave(con, dat=tmpdat, tablename="yrf_tmp", safer=FALSE, rownames=FALSE)
+      re <- sqlQuery(con,query=qr)
+      odbcClose(con)
+    } else if (datasrc=="local"){
+      con <- db.local()
+      dbWriteTable(con, name="yrf_tmp", value=tmpdat, row.names = FALSE, overwrite = TRUE)
+      re <- dbGetQuery(con,qr)
+      dbDisconnect(con)
+    }
+    re=merge(re,daymat,by.x="date",by.y ="newday" )
+    re=re[,c("oldday","stockID","wgt")]
+    colnames(re)<-c("date","stockID","wgt")
+    re <- dplyr::arrange(re,date)
+  }
+
+  if(datasrc=="jy"){
+    indexID <- stockID2stockID(indexID,to="jy",from="local")
+    subfun <- function(endT0){
+      qr <- paste(
+        "SELECT InnerCode as stockID, Weight/100 as wgt
+        FROM LC_IndexComponentsWeight as a
+        where IndexCode=",QT(indexID) ,"and a.EndDate=",QT(endT0)
+      )
+      dat <- queryAndClose.odbc(db.jy(),query=qr)
+      if(nrow(dat)==0){
+        warning(paste("weight data is missing on",endT0,"!"))
+      } else {
+        dat <- data.frame(date=intdate2r(endT0),dat,stringsAsFactors=FALSE)
+      }
+      return(dat)
+    }
+    cat("Function getIndexCompWgt: getting the component wgts ....\n")
+    re <- plyr::ldply(endT,subfun,.progress="text")
+    re$stockID <- stockID2stockID(re$stockID,to="local",from="jy")
+  }
+
+  return(re)
+}
+
+
+
+
+
+
+
+
 
 
 
@@ -629,4 +580,8 @@ rmPriceLimit <- function(TS,dateType=c('nextday','today'),priceType=c('upLimit',
 
 }
 
+
+# ===================== xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ======================
+# ===================== series of gf functions  ===========================
+# ===================== xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ======================
 
