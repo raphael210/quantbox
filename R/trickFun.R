@@ -5,23 +5,25 @@
 "portdemo"
 
 
+#' assets return demo dataset.
+#'
+#' A dataset containing stock index(000985.CSI), bond index(037.CS) and commodity(GC00.CMX) daily return data since 2009.
+#'
+#' @format A data frame with 2865 rows and 4 variables:
+#' \describe{
+#'   \item{date}{date type}
+#'   \item{stock}{stock index return}
+#'   \item{bond}{bond index return}
+#'   \item{commodity}{commodity index return}
+#' }
+"rtndemo"
 
 
-#' bracket a series of string
-#'
-#'
-#' @author Andrew Dow
-#' @param series is a series object
-#' @return a string object with bracket surrounded the series object.
-#' @examples
-#' series <- c('EQ000001','EQ000002')
-#' brkQT(series)
-#' @export
-brkQT <- function(series){
-  tmp <- paste(series,collapse = "','")
-  tmp <- paste("('",tmp,"')",sep='')
-  return(tmp)
-}
+
+# ===================== xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ======================
+# ===================== series of quant report functions  ===========================
+# ===================== xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ======================
+
 
 
 
@@ -45,8 +47,10 @@ bank.rotation <- function(begDate,endDate=Sys.Date(),chgBar=0.2){
 
   #get TSF
   rebDates <- getRebDates(begDate,endDate,rebFreq = 'day')
-  TS <- getTS(rebDates,indexID = 'ES09440100')
-  TSF <- gf.PB_mrq_new(TS,datasource='quant')
+  TS <- getTS(rebDates,indexID = 'ES33480000')
+  tmp <- getTS(max(rebDates),indexID = 'EI000985')
+  TS <- TS[TS$stockID %in% tmp$stockID,]
+  TSF <- gf.PB_mrq(TS)
   tmp <- gf.F_ROE_new(TS,datasource='cs')
   TSF <- merge(TSF,tmp,by=c('date','stockID'),all.x=T)
   TSF$stockName <- stockID2name(TSF$stockID)
@@ -105,7 +109,7 @@ bank.rotation <- function(begDate,endDate=Sys.Date(),chgBar=0.2){
   }
 
   #get bench mark return
-  bench <- getIndexQuote(index = 'EI801780',begT = begDate,endT = max(TSR$date),variables = c('pct_chg'),datasrc = 'jy')
+  bench <- getIndexQuote('EI801780',begT = begDate,endT = max(TSR$date),variables = c('pct_chg'),datasrc = 'jy')
   bench <- bench[,c("date","pct_chg")]
   colnames(bench) <- c('date','indexRtn')
 
@@ -123,6 +127,987 @@ bank.rotation <- function(begDate,endDate=Sys.Date(),chgBar=0.2){
   return(list(newData=TSF,bankrtn=rtn))
 }
 
+# ===================== ~ index valuation  ====================
+
+#' update table QT_IndexTiming
+#'
+#'
+#' @author Andrew Dow
+#' @examples
+#' lcdb.update.QT_IndexTiming()
+#' @export
+lcdb.update.QT_IndexTiming<- function(){
+
+  subfun <- function(indexDate){
+    tmp <- brkQT(substr(indexDate$indexID,3,8))
+
+    #get index component
+    qr <- paste("select 'EI'+s1.SecuCode 'indexID','EQ'+s2.SecuCode 'stockID',
+                convert(varchar(8),l.InDate,112) 'InDate',
+                convert(varchar(8),l.OutDate,112) 'OutDate'
+                from LC_IndexComponent l
+                LEFT join SecuMain s1 on l.IndexInnerCode=s1.InnerCode
+                LEFT join SecuMain s2 on l.SecuInnerCode=s2.InnerCode
+                where s1.SecuCode in",tmp,
+                " order by s1.SecuCode,l.InDate")
+    con <- db.jy()
+    indexComp <- sqlQuery(con,qr)
+    odbcClose(con)
+    con <- db.local()
+    dbWriteTable(con, name="amtao_tmp", value=indexComp, row.names = FALSE, overwrite = TRUE)
+    dbDisconnect(con)
+
+    for(i in 1:nrow(indexDate)){
+      cat(i,':',as.character(indexDate$indexID[i]),rdate2int(indexDate$begT[i]),'\n')
+
+      tmpdate <- rdate2int(getRebDates(indexDate$begT[i],indexDate$endT[i],'day'))
+      tmpdate <- data.frame(date=tmpdate)
+      con <- db.local()
+      dbWriteTable(con, name="yrf_tmp", value=tmpdate, row.names = FALSE, overwrite = TRUE)
+      dbDisconnect(con)
+      qr <- paste("SELECT a.date as date, b.stockID from yrf_tmp a, amtao_tmp b
+                  where b.IndexID=", QT(indexDate$indexID[i]),
+                  "and b.InDate<=a.date and (b.OutDate>a.date or b.OutDate IS NULL)")
+      TS <- dbGetQuery(db.local(),qr)
+      TS$date <- intdate2r(TS$date)
+      if(i==1){
+        tmp <- getRebDates(min(indexDate$begT),max(indexDate$endT),'day')
+        tmp <- getTS(tmp,indexID = 'EI801003')
+        alldata <- gf.PE_ttm(tmp)
+        alldata <- dplyr::rename(alldata,pettm=factorscore)
+        tmp <- gf.PB_mrq(tmp)
+        tmp <- dplyr::rename(tmp,pbmrq=factorscore)
+        alldata <- merge(alldata,tmp,by=c('date','stockID'))
+      }
+
+      TSF <- merge.x(TS,alldata,by=c('date','stockID'))
+      TSF <- dplyr::filter(TSF,!is.na(pettm),!is.na(pbmrq))
+
+      #pe median
+      indexvalue <- plyr::ddply(TSF,'date',plyr::summarise,value=median(pettm))
+      indexvalue <- cbind(indexID=indexDate$indexID[i],indexName=indexDate$indexName[i],indexvalue,valtype='PE',caltype='median')
+
+      #pe mean
+      tmp <- TSF[,c('date','stockID','pettm')]
+      tmp <- dplyr::filter(tmp,pettm>0,pettm<1000)
+      colnames(tmp) <- c('date','stockID','factorscore')
+      tmp <- RFactorModel:::factor.outlier(tmp,3)
+      tmp <- plyr::ddply(tmp,'date',plyr::summarise,value=mean(factorscore))
+      tmp <- cbind(indexID=indexDate$indexID[i],indexName=indexDate$indexName[i],tmp,valtype='PE',caltype='mean')
+      indexvalue <- rbind(indexvalue,tmp)
+
+      #pb median
+      tmp <- plyr::ddply(TSF,'date',plyr::summarise,value=median(pbmrq))
+      tmp <- cbind(indexID=indexDate$indexID[i],indexName=indexDate$indexName[i],tmp,valtype='PB',caltype='median')
+      indexvalue <- rbind(indexvalue,tmp)
+
+      #pe mean
+      tmp <- TSF[,c('date','stockID','pbmrq')]
+      tmp <- tmp[tmp$pbmrq>0,]
+      colnames(tmp) <- c('date','stockID','factorscore')
+      tmp <- RFactorModel:::factor.outlier(tmp,3)
+      tmp <- plyr::ddply(tmp,'date',plyr::summarise,value=mean(factorscore))
+      tmp <- cbind(indexID=indexDate$indexID[i],indexName=indexDate$indexName[i],tmp,valtype='PB',caltype='mean')
+      indexvalue <- rbind(indexvalue,tmp)
+
+      if(i==1){
+        re <- indexvalue
+      }else{
+        re <- rbind(re,indexvalue)
+      }
+    }
+    return(re)
+  }#subfun finished
+
+  con <- db.local()
+  begT <- dbGetQuery(con,"select max(date) 'date' from QT_IndexTiming")
+  begT <- trday.nearby(intdate2r(begT$date),by=-1)
+  endT <- trday.nearby(Sys.Date(),by=1)
+  if(begT>endT){
+    return('Done!')
+  }else{
+    indexDate <- dbGetQuery(con,"select distinct indexID,indexName from QT_IndexTiming")
+    indexDate$begT <- begT
+    indexDate$endT <- endT
+
+    re <- subfun(indexDate)
+    re$date <- rdate2int(re$date)
+    dbWriteTable(con,'QT_IndexTiming',re,overwrite=F,append=T,row.names=FALSE)
+    dbDisconnect(con)
+    return('Done!')
+  }
+}
+
+
+#' getIndexValuation
+#'
+#'
+#' @author Andrew Dow
+#' @examples
+#' re <- getIV()
+#' @export
+getIV <- function(valtype=c('PE','PB'),caltype=c('median','mean'),
+                  begT=as.Date('2005-01-04'),endT=Sys.Date()-1){
+  valtype <- match.arg(valtype)
+  caltype <- match.arg(caltype)
+
+  qr <- paste("select indexID,indexName,date,value from QT_IndexTiming
+              where date>=",rdate2int(begT),
+              " and date<=",rdate2int(endT),
+              "and valtype=",QT(valtype)," and caltype=",QT(caltype))
+  con <- db.local()
+  re <- dbGetQuery(con,qr)
+  dbDisconnect(con)
+  re$date <- intdate2r(re$date)
+  name <- paste(valtype,caltype,sep='_')
+  colnames(re) <- c("indexID","indexName","date",name)
+  re <- arrange(re,indexID,date)
+
+  Nindex <- unique(re[,c('indexID','indexName')])
+  result <- data.frame()
+  for(i in 1:nrow(Nindex)){
+    Data <- re[re$indexID==Nindex$indexID[i],c('date',name)]
+    Datats <- xts::xts(Data[,-1],order.by = Data[,1])
+    Datats <- TTR::runPercentRank(Datats, n = 250, cumulative = T, exact.multiplier = 0.5)
+    Datats <-  data.frame(date=zoo::index(Datats), value=zoo::coredata(Datats))
+    Datats <- Datats[251:nrow(Datats),]
+    Datats <- cbind(Nindex$indexID[i],Nindex$indexName[i],Datats)
+    colnames(Datats) <- c("indexID","indexName","date","percentRank")
+    result <- rbind(result,Datats)
+  }
+  result <- merge.x(result,re,by = c("indexID","indexName","date"))
+  result <- arrange(result,date,indexID)
+  return(result)
+}
+
+
+# ===================== ~ index timing  ====================
+
+
+#' LLT timing
+#'
+#'
+#' @author Andrew Dow
+#' @examples
+#' re <- LLT()
+#' @export
+LLT <- function(indexID='EI000300',begT=as.Date('2005-01-04'),d=60,trancost=0.001,type=c('LLT','SMA')){
+  type <- match.arg(type)
+
+  endT <- Sys.Date()-1
+  variables <- c("open","close","pct_chg")
+  indexQuote <- getIndexQuote(indexID,begT,endT,variables,datasrc="jy")
+  indexQuote$stockID <- NULL
+
+  if(type=='LLT'){
+    alpha <- 2/(1+d)
+
+    indexQuote$LLT <- c(indexQuote$close[1:2],rep(0,nrow(indexQuote)-2))
+    for(i in 3:nrow(indexQuote)){
+      indexQuote$LLT[i] <- (alpha-alpha^2/4)* indexQuote$close[i]+
+        (alpha^2/2)*indexQuote$close[i-1]-(alpha-3*alpha^2/4)*indexQuote$close[i-2]+
+        2*(1-alpha)*indexQuote$LLT[i-1]-(1-alpha)^2*indexQuote$LLT[i-2]
+    }
+    indexQuote <- indexQuote[d:nrow(indexQuote),]
+    rownames(indexQuote) <- seq(1,nrow(indexQuote))
+
+    indexQuote$pos <- c(0)
+    indexQuote$signal <- c('')
+    indexQuote$tmp <- indexQuote$pct_chg
+    for(i in 3:nrow(indexQuote)){
+      if(indexQuote$LLT[i-1]>indexQuote$LLT[i-2] && indexQuote$pos[i-1]==0){
+        indexQuote$pos[i] <- 1
+        indexQuote$tmp[i] <- indexQuote$close[i]/indexQuote$open[i]-1-trancost
+      }else if(indexQuote$LLT[i-1]>indexQuote$LLT[i-2] && indexQuote$pos[i-1]==1){
+        indexQuote$pos[i] <- 1
+      }else if(indexQuote$LLT[i-1]<indexQuote$LLT[i-2] && indexQuote$pos[i-1]==1){
+        indexQuote$pos[i] <- 0
+        indexQuote$tmp[i] <- indexQuote$open[i]/indexQuote$close[i-1]-1-trancost
+      }
+
+      if(indexQuote$LLT[i]>indexQuote$LLT[i-1] && indexQuote$pos[i]==0){
+        indexQuote$signal[i] <- 'buy'
+      }else if(indexQuote$LLT[i]>indexQuote$LLT[i-1] && indexQuote$pos[i]==1){
+        indexQuote$signal[i] <- 'hold'
+      }else if(indexQuote$LLT[i]<indexQuote$LLT[i-1] && indexQuote$pos[i]==1){
+        indexQuote$signal[i] <- 'sell'
+      }
+
+    }
+
+  }else{
+    indexQuote$MA <- TTR::SMA(indexQuote$close,d)
+    indexQuote <- indexQuote[d:nrow(indexQuote),]
+    rownames(indexQuote) <- seq(1,nrow(indexQuote))
+
+    indexQuote$pos <- c(0)
+    indexQuote$signal <- c('')
+    indexQuote$tmp <- indexQuote$pct_chg
+    for(i in 2:nrow(indexQuote)){
+      if(indexQuote$close[i-1]>indexQuote$MA[i-1] && indexQuote$pos[i-1]==0){
+        indexQuote$pos[i] <- 1
+        indexQuote$tmp[i] <- indexQuote$close[i]/indexQuote$open[i]-1-trancost
+      }else if(indexQuote$close[i-1]>indexQuote$MA[i-1] && indexQuote$pos[i-1]==1){
+        indexQuote$pos[i] <- 1
+      }else if(indexQuote$close[i-1]<indexQuote$MA[i-1] && indexQuote$pos[i-1]==1){
+        indexQuote$pos[i] <- 0
+        indexQuote$tmp[i] <- indexQuote$open[i]/indexQuote$close[i-1]-1-trancost
+      }
+
+      if(indexQuote$close[i]>indexQuote$MA[i] && indexQuote$pos[i]==0){
+        indexQuote$signal[i] <- 'buy'
+      }else if(indexQuote$close[i]>indexQuote$MA[i] && indexQuote$pos[i]==1){
+        indexQuote$signal[i] <- 'hold'
+      }else if(indexQuote$close[i]<indexQuote$MA[i] && indexQuote$pos[i]==1){
+        indexQuote$signal[i] <- 'sell'
+      }
+    }
+  }
+
+  indexQuote$strRtn <- indexQuote$tmp*indexQuote$pos
+  indexQuote <- subset(indexQuote,select=-c(pos,tmp))
+  return(indexQuote)
+
+}
+
+
+
+#' getIndustryMA
+#'
+#'
+#' @author Andrew Dow
+#' @examples
+#' re <- getIndustryMA(begT=as.Date('2014-01-04'))
+#' @export
+getIndustryMA <- function(begT=as.Date('2005-01-04'),endT=Sys.Date()-1){
+  con <- db.jy()
+  qr <- "select 'EI'+s.SecuCode 'indexID',s.SecuAbbr 'indexName',
+  c.DM 'industryCode',c.MS 'industryName'
+  from LC_CorrIndexIndustry l,SecuMain s,CT_SystemConst c
+  where l.IndustryStandard=24
+  and l.IndexCode=s.InnerCode and l.IndustryCode=c.DM
+  and c.LB=1804 and c.IVALUE=1"
+  indexInd <- sqlQuery(con,qr,stringsAsFactors=F)
+  indexInd <- indexInd[!stringr::str_detect(indexInd$indexName,'三板'),]
+
+  indexQuote <- getIndexQuote(indexInd$indexID,begT,endT,variables='close',datasrc="jy")
+  indexQuote <- arrange(indexQuote,stockID,date)
+
+  indexScore <- data.frame()
+  for(i in 1:nrow(indexInd)){
+    tmp <- indexQuote[indexQuote$stockID==indexInd$indexID[i],]
+    tmp <- transform(tmp,MA1=TTR::SMA(close,8),MA2=TTR::SMA(close,13),
+                     MA3=TTR::SMA(close,21),MA4=TTR::SMA(close,34),
+                     MA5=TTR::SMA(close,55),MA6=TTR::SMA(close,89),
+                     MA7=TTR::SMA(close,144),MA8=TTR::SMA(close,233))
+    tmp <- na.omit(tmp)
+    tmp$score <- (tmp$close>tmp$MA1)+(tmp$close>tmp$MA2)+(tmp$close>tmp$MA3)+(tmp$close>tmp$MA4)+
+      (tmp$close>tmp$MA5)+(tmp$close>tmp$MA6)+(tmp$close>tmp$MA7)+(tmp$close>tmp$MA8)
+    tmp <- tmp[,c('date','stockID','score')]
+    indexScore <- rbind(indexScore,tmp)
+  }
+  indexScore <- merge(indexScore,indexInd[,c('indexID','industryName')],
+                      by.x = 'stockID', by.y = 'indexID',all.x=T)
+  indexScore <- indexScore[,c( "date","stockID","industryName","score")]
+  indexScore <- arrange(indexScore,date,stockID)
+  odbcClose(con)
+  return(indexScore)
+}
+
+
+# ===================== ~ get data  ====================
+
+#' private offering fund
+#'
+#'
+#' get private offering fund daily nav and premium and discount ration info
+#' @author Andrew Dow
+#' @examples
+#' re <- POFund(fundID,begT,endT)
+#' @export
+POFund <- function(fundID,begT,endT){
+  tmp <- brkQT(fundID)
+  con <- db.jy()
+  qr <- paste("SELECT s.SecuCode+'.OF' 'fundID',s.SecuAbbr 'fundName',
+              convert(varchar(8),mf.EndDate,112) 'date',mf.UnitNV 'NAV',q.ClosePrice 'close'
+              FROM MF_NetValue mf,SecuMain s,QT_DailyQuote q
+              where mf.InnerCode=s.InnerCode and mf.InnerCode=q.InnerCode and mf.EndDate=q.TradingDay
+              and mf.EndDate>=",QT(begT)," and mf.EndDate<=",QT(endT),
+              " and s.SecuCode in ",tmp," order by s.SecuCode,mf.EndDate")
+  fund <- sqlQuery(con,qr)
+  fund$pre <- fund$close/fund$NAV-1
+  fund$date <- intdate2r(fund$date)
+  odbcClose(con)
+  return(fund)
+}
+
+
+
+
+
+
+
+#' getIndexFuturesSpread
+#'
+#'
+#' @author Andrew Dow
+#' @examples
+#' re <- getIFSpread()
+#' @export
+getIFSpread <- function(begT=as.Date('2010-04-16'),endT=Sys.Date()-1){
+  qr <- paste("select convert(varchar,t.TradingDay,112) 'date',
+              t.ContractCode 'stockID',t.ClosePrice 'close',t.BasisValue 'spread',
+              convert(varchar,f.EffectiveDate,112) 'effectiveDate',
+              convert(varchar,f.LastTradingDate,112) 'lastTradingDate'
+              from Fut_TradingQuote t,Fut_ContractMain f
+              where t.ContractInnerCode=f.ContractInnerCode and t.ContractCode like 'I%'
+              and t.TradingDay>=",QT(begT),
+              " and t.TradingDay<=",QT(endT),
+              "ORDER by t.TradingDay,t.ContractCode")
+  con <- db.jy()
+  IFData <- sqlQuery(con,qr)
+  odbcClose(con)
+  IFData <- transform(IFData,date=intdate2r(date),
+                      effectiveDate=intdate2r(effectiveDate),
+                      lastTradingDate=intdate2r(lastTradingDate))
+  tmp1 <- IFData[substr(IFData$stockID,3,4)=='0Y',c("date","stockID","close","spread")]
+  colnames(tmp1) <- c("dateCon","stockIDCon","closeCon","spreadCon")
+  tmp2 <- IFData[substr(IFData$stockID,3,4)!='0Y',c("date","stockID","close","spread","effectiveDate","lastTradingDate")]
+  IFData <- cbind(tmp1,tmp2)
+  if(sum(IFData$dateCon!=IFData$date)>0 | sum(IFData$closeCon- IFData$close)>1 |
+     sum(IFData$spreadCon-IFData$spread)>1) stop('cbind fail!')
+  IFData <- IFData[,c("date","stockIDCon","stockID","effectiveDate","lastTradingDate","close","spread")]
+
+  IFData$spreadPct <- IFData$spread/(IFData$close-IFData$spread)
+  IFData$spreadPctAna <- sign(IFData$spreadPct)*((1+abs(IFData$spreadPct))^(365/as.numeric(IFData$lastTradingDate- IFData$date))-1)
+  IFData[IFData$date==IFData$lastTradingDate,'spreadPctAna'] <- 0
+  IFData <- IFData[,c("date","stockIDCon","stockID","effectiveDate","lastTradingDate",
+                      "close","spread","spreadPct","spreadPctAna")]
+  return(IFData)
+
+}
+
+
+# ===================== ~ grid trading  ====================
+
+#' grid trading with index futures
+#'
+#'
+#' @author Andrew Dow
+#' @examples
+#' indexID <- 'EI000905'
+#' begT <- as.Date('2015-09-01')
+#' endT <- Sys.Date()-1
+#' para <- list(total=5e6,initPos=2,posChg=1,bar=0.1,tradeCost=1/1000)
+#' re <- gridTrade.IF(indexID,begT,endT,para)
+#' @export
+gridTrade.IF <- function(indexID,begT,endT=Sys.Date()-1,para){
+
+  getData <- function(indexID,begT,endT){
+    if(indexID=='EI000300'){
+      tmp <- 'IF1%'
+    }else if(indexID=='EI000905'){
+      tmp <- 'IC1%'
+    }else if(indexID=='EI000016'){
+      tmp <- 'IH1%'
+    }
+
+    #get index future quote
+    qr <- paste("select convert(varchar(10),t.TradingDay,112) 'date',
+                t.ContractCode 'stockID',
+                convert(varchar(10),c.EffectiveDate,112) 'effectiveDate',
+                convert(varchar(10),c.LastTradingDate,112) 'lastTradingDate',
+                t.ClosePrice 'close'
+                from Fut_TradingQuote t,Fut_ContractMain c
+                where t.ContractInnerCode=c.ContractInnerCode and
+                t.ContractCode like ",QT(tmp),
+                " and t.TradingDay>=",QT(begT)," and t.TradingDay<=",QT(endT),
+                " order by t.TradingDay,t.ContractCode")
+    con <- db.jy()
+    indexData <- sqlQuery(con,qr,stringsAsFactors =F)
+    odbcClose(con)
+    indexData <- transform(indexData,date=intdate2r(date),effectiveDate=intdate2r(effectiveDate),
+                           lastTradingDate=intdate2r(lastTradingDate))
+    indexData$lastTradingDate <- trday.nearby(indexData$lastTradingDate,by=1)
+
+    # keep the next quarter contract
+    indexData$tmp <- c(0)
+    shiftData <- data.frame()
+    for(i in 1:nrow(indexData)){
+      if(i==1){
+        IF.ID <- indexData$stockID[4]
+        IF.lastDay <- indexData$lastTradingDate[4]
+      }
+      if(indexData$stockID[i]==IF.ID && indexData$date[i]<IF.lastDay){
+        indexData$tmp[i] <- 1
+      }else if(indexData$stockID[i]==IF.ID && indexData$date[i]==IF.lastDay){
+        shiftData <- rbind(shiftData,indexData[i,c("date","stockID","close")])
+        tmp <- indexData[indexData$date==indexData$date[i],]
+        IF.ID <- tmp$stockID[4]
+        IF.lastDay <- tmp$lastTradingDate[4]
+      }
+    }
+    indexData <- indexData[indexData$tmp==1,c("date","stockID","close")]
+
+    #get index quote
+    tmp <- getIndexQuote(indexID,begT,endT,variables='close',datasrc="jy")
+    tmp$stockID <- NULL
+    colnames(tmp) <- c("date","benchClose")
+
+    indexData <- merge(indexData,tmp,by='date',all.x=T)
+    alldata <- list(indexData=indexData,shiftData=shiftData)
+    return(alldata)
+  }
+
+
+  calcData <- function(indexData,shiftData,para){
+    if(substr(indexData$stockID[1],1,2) %in% c('IF','IH')){
+      multiplier <- 300
+    }else if(substr(indexData$stockID[1],1,2)=='IC'){
+      multiplier <- 200
+    }
+
+    indexData <- transform(indexData,benchPct=benchClose/indexData$benchClose[1]-1,
+                           pos=c(0),mv=c(0),cost=c(0),cash=c(0),rtn=c(0),totalasset=c(0),remark=NA)
+    for(i in 1:nrow(indexData)){
+      #initial
+      if(i==1){
+        indexData$pos[i] <-para$initPos
+        indexData$mv[i] <-indexData$pos[i]*indexData$close[i]*multiplier
+        indexData$cost[i] <-para$tradeCost*indexData$mv[i]
+        indexData$cash[i] <-para$total-indexData$mv[i]-indexData$cost[i]
+        indexData$totalasset[i] <-indexData$mv[i]+indexData$cash[i]
+        indexData$rtn[i] <- indexData$totalasset[i]/para$total-1
+        indexData$remark[i] <-'initial'
+        next
+      }
+
+      # shift positions
+      if(indexData$stockID[i]!=indexData$stockID[i-1]){
+        tmp <- subset(shiftData,stockID==indexData$stockID[i-1] & date==indexData$date[i],select=close)
+        indexData$pos[i] <-indexData$pos[i-1]
+        indexData$mv[i] <-indexData$pos[i]*indexData$close[i]*multiplier
+        indexData$cost[i] <-para$tradeCost*(indexData$mv[i]+indexData$pos[i-1]*tmp$close*multiplier)
+        indexData$cash[i] <-indexData$cash[i-1]-indexData$cost[i]+indexData$pos[i-1]*tmp$close*multiplier-indexData$mv[i]
+        indexData$totalasset[i] <-indexData$mv[i]+indexData$cash[i]
+        indexData$rtn[i] <- indexData$totalasset[i]/indexData$totalasset[i-1]-1
+        indexData$remark[i] <-'shift'
+      }
+
+      #position change
+      if(indexData$benchPct[i]>para$bar){
+        todayPos <- para$initPos-floor(indexData$benchPct[i]/para$bar)*para$posChg
+      }else if(indexData$benchPct[i]<(-1*para$bar)){
+        todayPos <- para$initPos+floor(abs(indexData$benchPct[i]/para$bar))*para$posChg
+      }else{
+        todayPos <- para$initPos
+      }
+
+      if(todayPos<indexData$pos[i-1] & indexData$pos[i-1]>0){
+        posChg <- min(indexData$pos[i-1]-todayPos,indexData$pos[i-1])
+        #subtract position
+        if(is.na(indexData$remark[i])){
+          indexData$pos[i] <-indexData$pos[i-1]-posChg
+          indexData$mv[i] <-indexData$pos[i]*indexData$close[i]*multiplier
+          indexData$cost[i] <-para$tradeCost*posChg*multiplier*indexData$close[i]
+          indexData$cash[i] <-indexData$cash[i-1]-indexData$cost[i]+posChg*multiplier*indexData$close[i]
+          indexData$totalasset[i] <-indexData$mv[i]+indexData$cash[i]
+          indexData$rtn[i] <- indexData$totalasset[i]/indexData$totalasset[i-1]-1
+          indexData$remark[i] <-'subtract'
+        }else{
+          #shift position + subtract position
+          indexData$pos[i] <-indexData$pos[i]-posChg
+          indexData$mv[i] <-indexData$pos[i]*indexData$close[i]*multiplier
+          indexData$cost[i] <-indexData$cost[i]+para$tradeCost*posChg*multiplier*indexData$close[i]
+          indexData$cash[i] <-indexData$cash[i-1]-indexData$cost[i]+posChg*multiplier*indexData$close[i]
+          indexData$totalasset[i] <-indexData$mv[i]+indexData$cash[i]
+          indexData$rtn[i] <- indexData$totalasset[i]/indexData$totalasset[i-1]-1
+        }
+      }else if(todayPos>indexData$pos[i-1] & indexData$cash[i-1]>=indexData$close[i]*multiplier){
+        #add position
+        posChg <- min(todayPos-indexData$pos[i-1],floor(indexData$cash[i-1]/indexData$close[i]*multiplier))
+        if(is.na(indexData$remark[i])){
+          indexData$pos[i] <-indexData$pos[i-1]+posChg
+          indexData$mv[i] <-indexData$pos[i]*indexData$close[i]*multiplier
+          indexData$cost[i] <-para$tradeCost*posChg*multiplier*indexData$close[i]
+          indexData$cash[i] <-indexData$cash[i-1]-indexData$cost[i]-posChg*multiplier*indexData$close[i]
+          indexData$totalasset[i] <-indexData$mv[i]+indexData$cash[i]
+          indexData$rtn[i] <- indexData$totalasset[i]/indexData$totalasset[i-1]-1
+          indexData$remark[i] <-'add'
+        }else{
+          #shift position + add position
+          indexData$pos[i] <-indexData$pos[i]+posChg
+          indexData$mv[i] <-indexData$pos[i]*indexData$close[i]*multiplier
+          indexData$cost[i] <-indexData$cost[i]+para$tradeCost*posChg*multiplier*indexData$close[i]
+          indexData$cash[i] <-indexData$cash[i-1]-indexData$cost[i]-posChg*multiplier*indexData$close[i]
+          indexData$totalasset[i] <-indexData$mv[i]+indexData$cash[i]
+          indexData$rtn[i] <- indexData$totalasset[i]/indexData$totalasset[i-1]-1
+        }
+
+      }else{
+        #hold position
+        if(is.na(indexData$remark[i])){
+          indexData$pos[i] <-indexData$pos[i-1]
+          indexData$mv[i] <-indexData$pos[i]*indexData$close[i]*multiplier
+          indexData$cash[i] <-indexData$cash[i-1]
+          indexData$totalasset[i] <-indexData$mv[i]+indexData$cash[i]
+          indexData$rtn[i] <- indexData$totalasset[i]/indexData$totalasset[i-1]-1
+        }else next
+      }
+    }
+
+    return(indexData)
+  }
+
+  allData <- getData(indexID,begT,endT)
+  indexData <- allData$indexData
+  shiftData <- allData$shiftData
+
+  indexData <- calcData(indexData,shiftData,para)
+  indexData <- transform(indexData,benchPct=round(benchPct,digits = 4),
+                         rtn=round(rtn,digits = 4))
+  indexData <- indexData[,c("date","stockID","close","benchClose","benchPct","pos","mv","rtn","totalasset","remark" )]
+  return(indexData)
+}
+
+
+
+
+#' grid trading with index fund
+#'
+#'
+#' @author Andrew Dow
+#' @examples
+#' indexID <- 'EI000905'
+#' begT <- as.Date('2015-09-01')
+#' endT <- Sys.Date()-1
+#' para <- list(total=5e6,initmv=2e6,bar=0.1,mvChg=1e6,tradeCost=1/1000)
+#' re <- gridTrade.index(indexID,begT,endT,para)
+#' @export
+gridTrade.index <- function(indexID,begT,endT=Sys.Date()-1,para){
+  getData <- function(indexID,begT,endT){
+    #get index quote
+    indexData <- getIndexQuote(indexID,begT,endT,'close',datasrc="jy")
+    indexData$benchClose <- indexData$close
+    indexData$close <- indexData$close/indexData$close[1]
+    indexData <- indexData[,c('date','stockID','close','benchClose')]
+    return(indexData)
+  }
+
+  calcData <- function(indexData,para){
+    indexData <- transform(indexData,benchPct=benchClose/indexData$benchClose[1]-1,
+                           pos=c(0),mv=c(0),invest=c(0),cost=c(0),cash=c(0),rtn=c(0),totalasset=c(0),remark=NA)
+    for(i in 1:nrow(indexData)){
+      #initial
+      if(i==1){
+        indexData$invest[i] <- para$initmv
+        indexData$pos[i] <- floor(para$initmv/(indexData$close[i]*100))*100
+        indexData$mv[i] <-indexData$pos[i]*indexData$close[i]
+        indexData$cost[i] <-indexData$mv[i]*para$tradeCost
+        indexData$cash[i] <-para$total-indexData$mv[i]-indexData$cost[i]
+        indexData$totalasset[i] <-indexData$mv[i]+indexData$cash[i]
+        indexData$remark[i] <-'initial'
+        indexData$rtn[i] <- indexData$totalasset[i]/para$total-1
+        next
+      }
+
+      #position change
+      if(indexData$benchPct[i]>para$bar){
+        todayInvest <- para$initmv-floor(indexData$benchPct[i]/para$bar)*para$mvChg
+      }else if(indexData$benchPct[i]<(-1*para$bar)){
+        todayInvest <- para$initmv+floor(abs(indexData$benchPct[i]/para$bar))*para$mvChg
+      }else{
+        todayInvest <- para$initmv
+      }
+
+      if(todayInvest<indexData$invest[i-1] & indexData$mv[i-1]>0){
+        #subtract position
+        investChg <- min(indexData$invest[i-1]-todayInvest,indexData$mv[i-1])
+        indexData$invest[i] <- max(todayInvest,0)
+        chgPos <- floor(investChg/(indexData$close[i]*100))*100
+        indexData$pos[i] <-indexData$pos[i-1]-chgPos
+        indexData$mv[i] <-indexData$pos[i]*indexData$close[i]
+        indexData$cost[i] <-chgPos*indexData$close[i]*para$tradeCost
+        indexData$cash[i] <-indexData$cash[i-1]-indexData$cost[i]+chgPos*indexData$close[i]
+        indexData$totalasset[i] <-indexData$mv[i]+indexData$cash[i]
+        indexData$rtn[i] <- indexData$totalasset[i]/indexData$totalasset[i-1]-1
+        indexData$remark[i] <-'subtract'
+
+      }else if(todayInvest>indexData$invest[i-1] & indexData$cash[i-1]>0){
+        #add position
+        investChg <- min(todayInvest-indexData$invest[i-1],indexData$cash[i-1])
+        indexData$invest[i] <- min(todayInvest,para$total)
+        chgPos <- floor(investChg/(indexData$close[i]*100))*100
+        indexData$pos[i] <-indexData$pos[i-1]+chgPos
+        indexData$mv[i] <-indexData$pos[i]*indexData$close[i]
+        indexData$cost[i] <-chgPos*indexData$close[i]*para$tradeCost
+        indexData$cash[i] <-indexData$cash[i-1]-chgPos*indexData$close[i]-indexData$cost[i]
+        indexData$totalasset[i] <-indexData$mv[i]+indexData$cash[i]
+        indexData$rtn[i] <- indexData$totalasset[i]/indexData$totalasset[i-1]-1
+        indexData$remark[i] <-'add'
+
+      }else{
+        #hold position
+        indexData$invest[i] <- indexData$invest[i-1]
+        indexData$pos[i] <-indexData$pos[i-1]
+        indexData$mv[i] <-indexData$pos[i]*indexData$close[i]
+        indexData$cash[i] <-indexData$cash[i-1]
+        indexData$totalasset[i] <-indexData$mv[i]+indexData$cash[i]
+        indexData$rtn[i] <- indexData$totalasset[i]/indexData$totalasset[i-1]-1
+      }
+    }
+    return(indexData)
+  }
+
+  indexData <- getData(indexID,begT,endT)
+  indexData <- calcData(indexData,para)
+  indexData <- transform(indexData,benchPct=round(benchPct,digits = 4),
+                         rtn=round(rtn,digits = 4))
+  indexData <- indexData[,c("date","stockID","close","benchClose","benchPct","pos","mv","rtn","totalasset","remark")]
+  return(indexData)
+}
+
+
+
+
+#' resumption stock arbitrage
+#'
+#'
+#' @author Andrew Dow
+#' @examples
+#' begT <- Sys.Date()-1
+#' endT <- Sys.Date()
+#' re <- resumeArbitrage(begT,endT)
+#' @export
+resumeArbitrage <- function(begT,endT){
+  get.resume.stock <- function(begT,endT,dayinterval=20,datasource=c('jy','tpan')){
+    datasource <- match.arg(datasource)
+    if(datasource=='jy'){
+      qr <- paste("SELECT 'EQ'+ss.SecuCode 'stockID',ss.SecuAbbr 'stockName',
+                  CONVERT(varchar(20),s.SuspendDate,112) 'suspendDate',
+                  CONVERT(varchar(20),s.ResumptionDate,112) 'resumeDate'
+                  from LC_SuspendResumption s,SecuMain ss
+                  where s.ResumptionDate>=",QT(begT),
+                  " and s.ResumptionDate<=",QT(endT),
+                  " and s.InnerCode=ss.InnerCode and ss.SecuCategory=1")
+      con <- db.jy()
+      resume.stock <- sqlQuery(con,qr,stringsAsFactors=F)
+      odbcClose(con)
+
+      resume.stock$suspendDate <- intdate2r(resume.stock$suspendDate)
+      resume.stock$resumeDate <- intdate2r(resume.stock$resumeDate)
+      resume.stock$lastSuspendDay <- trday.nearby(resume.stock$resumeDate, by = 1)
+      resume.stock <- resume.stock[(resume.stock$resumeDate-resume.stock$suspendDate)>dayinterval,]
+    }else{
+      tmp.begT <- trday.nearby(begT)
+      dates <- trday.get(begT =tmp.begT, endT = endT)
+      dates <- rdate2int(dates)
+      txtname <- c(paste("T:/Input/ZS/index/csitfp4fund",dates,"001.txt",sep = ""),
+                   paste("T:/Input/ZS/index/csitfp4fund",dates,"002.txt",sep = ""))
+      suspendstock <- plyr::ldply(txtname,read.csv, header=FALSE, sep="|",skip = 1, stringsAsFactors=FALSE)
+      suspendstock <- subset(suspendstock,V3 %in% c(T,"T"),select=c(V1,V2))
+      suspendstock <- suspendstock[substr(suspendstock$V1, 1, 1) %in% c("6","0","3"),]
+      colnames(suspendstock) <- c("stockID","suspendDate")
+      suspendstock$stockID <- str_c('EQ',suspendstock$stockID)
+      suspendstock <- plyr::arrange(suspendstock, suspendDate, stockID)
+      result <- data.frame()
+      for(i in length(dates):2){
+        x <- suspendstock[suspendstock$suspendDate==dates[i],"stockID"]
+        y <- suspendstock[suspendstock$suspendDate==dates[i-1],"stockID"]
+        stock <- setdiff(y,x)
+        if(length(stock)>0){
+          tmp <- data.frame(resumeDate=rep(intdate2r(dates[i]),length(stock)),stockID=stock)
+          result <- rbind(result,tmp)
+        }else next
+      }
+      tmp <- str_c(str_sub(result$stockID,3,8),collapse = "','")
+      tmp <- str_c("('",tmp,"')")
+
+      qr <- paste("SELECT 'EQ'+ss.SecuCode 'stockID',ss.SecuAbbr 'stockName',
+                  CONVERT(varchar(20),s.SuspendDate,112) 'suspendDate'
+                  from LC_SuspendResumption s,SecuMain ss
+                  where  s.InnerCode=ss.InnerCode and
+                  (s.ResumptionDate>=",str_c("'",as.character(begT),"'"),
+                  " or s.ResumptionDate='1900-01-01')
+                  and ss.SecuCategory=1 and ss.SecuCode in",tmp)
+      con <- db.jy()
+      resume.stock <- sqlQuery(con,qr,stringsAsFactors=F)
+      odbcClose(con)
+      if(nrow(resume.stock)>0){
+        resume.stock$suspendDate <- intdate2r(resume.stock$suspendDate)
+        resume.stock <- merge(resume.stock,result,by="stockID")
+        resume.stock$lastSuspendDay <- trday.nearby(resume.stock$resumeDate, by = 1)
+        resume.stock <- resume.stock[(resume.stock$resumeDate-resume.stock$suspendDate)>dayinterval,]
+      }
+
+    }
+
+    return(resume.stock)
+  }
+
+  get.fund.info <- function(){
+    qr <- "select s.SecuCode 'fundCode',s.SecuAbbr 'fundName','EI'+s1.SecuCode 'indexCode',s1.SecuAbbr 'indexName'
+    from MF_InvestTargetCriterion i
+    inner join SecuMain s on s.InnerCode=i.InnerCode
+    inner join SecuMain s1 on s1.InnerCode=i.TracedIndexCode
+    where i.InvestTarget=90 and i.IfExecuted=1 and i.MinimumInvestRatio>=0.9
+    and i.InnerCode in(
+    select f.InnerCode
+    from MF_FundArchives f,SecuMain s
+    where f.Type=3 and f.InnerCode=s.InnerCode
+    and f.ListedDate is not NULL and f.ExpireDate is NULL
+    and f.FundTypeCode='1101' and f.InvestmentType=7 and s.SecuCode not like '%J'
+    )"
+    con <- db.jy()
+    lof.info <- sqlQuery(con,qr)
+    odbcClose(con)
+    lof.info$type <- c("LOF")
+
+    sf.info <- dbReadTable(db.local(), "SF_Info")
+
+    fund.info <- sf.info[,c("MCode","MName","IndexCode","IndexName")]
+    fund.info$MCode <- substr(fund.info$MCode,1,6)
+    fund.info$IndexCode <- substr(fund.info$IndexCode,1,6)
+    fund.info$IndexCode <- paste('EI',fund.info$IndexCode,sep="")
+    fund.info$type <- c("SF")
+    colnames(fund.info) <- colnames(lof.info)
+    fund.info <- rbind(fund.info,lof.info)
+
+    return(fund.info)
+  }
+
+  get.index.component <- function(stock,index,date){
+    stock <- brkQT(substr(stock,3,8))
+    index <- brkQT(substr(index,3,8))
+    qr <- paste("select  'EI'+s1.SecuCode 'indexID',s1.SecuAbbr 'indexName',
+                'EQ'+s2.SecuCode 'stockID',s2.SecuAbbr 'stockName',
+                CONVERT(varchar(20),i.EndDate,112) 'enddate',
+                i.Weight,CONVERT(varchar(20),i.UpdateTime,112) 'update'
+                from LC_IndexComponentsWeight i
+                left join SecuMain s1 on i.IndexCode=s1.InnerCode
+                left join SecuMain s2 on i.InnerCode=s2.InnerCode
+                where i.InnerCode in (select InnerCode from SecuMain where SecuCode in ",stock," and SecuCategory=1)
+                and i.IndexCode in (SELECT InnerCode from SecuMain where SecuCode in ",index,"and SecuCategory=4)",
+                " and i.EndDate>=",QT(date))
+    con <- db.jy()
+    index.component <- sqlQuery(con,qr)
+    odbcClose(con)
+    if(nrow(index.component)>0){
+      index.component$enddate <- intdate2r(index.component$enddate)
+      return(index.component)
+    }else{
+      print('No qualified stock in these index!')
+    }
+  }
+
+  get.stock.industry <- function(stock){
+    stock <- brkQT(substr(stock,3,8))
+    qr <- paste("(select 'EQ'+b.SecuCode 'stockID',e.SecuCode 'sectorID',e.SecuAbbr 'sectorName'
+                from LC_ExgIndustry as a
+                inner join SecuMain as b on a.CompanyCode = b.CompanyCode
+                inner join CT_SystemConst as c on a.SecondIndustryCode = c.CVALUE
+                inner join LC_CorrIndexIndustry as d on c.DM = d.IndustryCode
+                INNER join SecuMain as e on d.IndexCode = e.InnerCode
+                where a.Standard = 23 and a.IfPerformed = 1 and b.SecuCode in ",stock,
+                " and b.SecuCategory = 1 and c.LB = 1755 and d.IndustryStandard = 23)
+                union
+                (select 'EQ'+b.SecuCode 'stockID',e.SecuCode 'sectorID',e.SecuAbbr 'sectorName'
+                from LC_ExgIndustry as a
+                inner join SecuMain as b on a.CompanyCode = b.CompanyCode
+                inner join CT_SystemConst as c on a.FirstIndustryCode = c.CVALUE
+                inner join LC_CorrIndexIndustry as d on c.DM = d.IndustryCode
+                INNER join SecuMain as e on d.IndexCode = e.InnerCode
+                where a.Standard = 23 and a.IfPerformed = 1 and b.SecuCode in ",stock,
+                " and b.SecuCategory = 1 and c.LB = 1755 and d.IndustryStandard = 23)")
+    con <- db.jy()
+    stock.industry <- sqlQuery(con,qr)
+    odbcClose(con)
+    return(stock.industry)
+  }
+
+  get.industry.quote <- function(industry,begday){
+    industry <- brkQT(industry)
+    qr <- paste("SELECT s.SecuCode 'sectorID',CONVERT(varchar(8),q.TradingDay,112) 'date',
+                q.ClosePrice 'close'
+                FROM QT_IndexQuote q,SecuMain s
+                where q.InnerCode=s.InnerCode and q.TradingDay>=",QT(begday),
+                " and s.SecuCategory=4 and s.SecuCode in ",industry,
+                " order by s.SecuCode,q.TradingDay")
+    con <- db.jy()
+    index.quote <- sqlQuery(con,qr)
+    odbcClose(con)
+    index.quote$date <- intdate2r(index.quote$date)
+    return(index.quote)
+  }
+
+  calc.match.industrypct <- function(resume.stock,index.quote){
+    colnames(index.quote) <- c("sectorID","suspendDate","close1" )
+    resume.stock <- merge(resume.stock,index.quote,by=c('sectorID','suspendDate'),all.x = T)
+    colnames(index.quote) <- c("sectorID","lastSuspendDay","close2" )
+    resume.stock <- merge(resume.stock,index.quote,by=c('sectorID','lastSuspendDay'),all.x = T)
+    resume.stock$IndustryPct <- resume.stock$close2/resume.stock$close1-1
+    resume.stock <- resume.stock[abs(resume.stock$IndustryPct)>=0.1,]
+
+    if(nrow(resume.stock)>0){
+      resume.stock <- resume.stock[,c("stockID","stockName","suspendDate", "resumeDate",
+                                      "lastSuspendDay","sectorID","sectorName","IndustryPct")]
+      return(resume.stock)
+    }else{
+      print('No valuation adjustment!')
+    }
+
+
+  }
+
+  calc.match.indexcomponent <- function(resume.stock,index.component,bar=2){
+    result <- data.frame()
+    for(i in 1:nrow(resume.stock)){
+      tmp.result <- resume.stock[i,]
+      tmp.index.component <- index.component[index.component$stockID==resume.stock$stockID[i],]
+      if(length(unique(tmp.index.component$indexID))>1){
+        for(j in unique(tmp.index.component$indexID)){
+          tmp <- tmp.index.component[tmp.index.component$indexID==j,]
+          tmp <- arrange(tmp,enddate)
+          ind <- findInterval(resume.stock[i,"suspendDate"],tmp$enddate)
+          if(ind==0 || max(tmp$enddate)<resume.stock[i,"suspendDate"]) next
+          tmp.result$inindex <- tmp$indexID[ind]
+          tmp.result$inindexname <- tmp$indexName[ind]
+          tmp.result$wgtinindex <- tmp$Weight[ind]
+          result <- rbind(result,tmp.result)
+        }
+      }else{
+        tmp <- tmp.index.component
+        tmp <- arrange(tmp,enddate)
+        ind <- findInterval(resume.stock[i,"suspendDate"],tmp$enddate)
+        if(ind==0 || max(tmp$enddate)<resume.stock[i,"suspendDate"]) next
+        tmp.result$inindex <- tmp$indexID[ind]
+        tmp.result$inindexname <- tmp$indexName[ind]
+        tmp.result$wgtinindex <- tmp$Weight[ind]
+        result <- rbind(result,tmp.result)
+      }
+    }
+    result <- result[result$wgtinindex>=bar,]
+    if(nrow(result)>0) return(result)
+    else print("No qualified index!")
+  }
+
+  calc.match.fundunit <- function(fund.result){
+    tmp.sfcode <- unique(fund.result$fundCode[fund.result$type=='SF'])
+    tmp.sfcode <- paste(tmp.sfcode,'.OF',sep='')
+    tmp.lofcode <- unique(fund.result$fundCode[fund.result$type=='LOF'])
+    tmp.begT <- min(fund.result$suspendDate)
+    fund.size <- data.frame()
+    if(length(tmp.sfcode)>0){
+      tmp <- brkQT(tmp.sfcode)
+      qr <- paste("select t.MCode,i.MName,t.Date,
+                  (t.MUnit*t.MNav+ t.AUnit*t.ANav + t.BUnit*t.BNav) 'Unit'
+                  from SF_TimeSeries t,SF_Info i
+                  where t.MCode=i.MCode and t.MCode in",tmp,
+                  "and t.Date>=",rdate2int(tmp.begT))
+      con <- db.local()
+      sf.size <- dbGetQuery(con,qr)
+      dbDisconnect(con)
+      colnames(sf.size) <- c("Code","Name","Date","Unit")
+      sf.size$Code <- substr(sf.size$Code,1,6)
+      fund.size <-rbind(fund.size,sf.size)
+    }
+
+    if(length(tmp.lofcode)>0){
+      tmp <- brkQT(tmp.lofcode)
+      qr <- paste("select s.SecuCode,s.SecuAbbr,CONVERT(varchar(8),m.EndDate,112) 'EndDate',m.FloatShares/100000000 'Unit'
+                  from MF_SharesChange m,SecuMain s
+                  where m.InnerCode=s.InnerCode and s.SecuCode in",tmp,
+                  " and m.StatPeriod='996' and m.EndDate>=",
+                  QT(tmp.begT),
+                  " order by s.SecuCode,m.EndDate")
+      con <- db.jy()
+      lof.size <- sqlQuery(con,qr)
+      odbcClose(con)
+      colnames(lof.size) <- c("Code","Name","Date","Unit")
+      fund.size <-rbind(fund.size,lof.size)
+    }
+    fund.size$Date <- intdate2r(fund.size$Date)
+
+    fund.result$OldUnit <- c(0)
+    fund.result$NewUnit <- c(0)
+    for(i in 1:nrow(fund.result)){
+      tmp <- fund.size[fund.size$Code==fund.result$fundCode[i] & !is.na(fund.size$Unit),]
+      tmp <- arrange(tmp,Date)
+      if(tmp$Date[1]>fund.result$suspendDate[i]) fund.result$OldUnit[i] <- tmp$Unit[1]
+      else fund.result$OldUnit[i] <- tmp$Unit[tmp$Date==fund.result$suspendDate[i]]
+      fund.result$NewUnit[i] <- tmp$Unit[nrow(tmp)]
+    }
+
+    fund.result$UnitPct <- as.numeric(fund.result$NewUnit)/as.numeric(fund.result$OldUnit)-1
+    fund.result$newWeight <- fund.result$wgtinindex*fund.result$OldUnit/fund.result$NewUnit
+    fund.result <- fund.result[fund.result$newWeight>=5 & fund.result$NewUnit>0.5,]
+    if(nrow(fund.result)>0){
+      fund.result <- fund.result[,c("fundCode","fundName","type",
+                                    "stockName","wgtinindex","suspendDate","resumeDate",
+                                    "sectorName","IndustryPct","OldUnit","NewUnit",'newWeight')]
+      fund.result <- arrange(fund.result,desc(newWeight))
+      return(fund.result)
+    }else{
+      print("No qualified stock!")
+    }
+
+  }
+
+
+  resume.stock <- get.resume.stock(begT,endT) #get qualified resumption stock
+  if(nrow(resume.stock)==0) return("None!")
+
+  fund.info <- get.fund.info() #get all lof and structure fund basic info
+
+  #get resumption stock in the traced index of these lof and sf
+  tmp.index <- toupper(unique(fund.info$indexCode))
+  tmp.date <- trday.offset(min(resume.stock$suspendDate), by = months(-1))
+  index.component <- get.index.component(resume.stock$stockID,tmp.index,tmp.date)
+  if(is.character(index.component)) return("None!")
+
+  #get stock's amac industy and the industry's corresponding index quote
+  resume.stock <- resume.stock[resume.stock$stockID %in% index.component$stockID,]
+  stock.industry <- get.stock.industry(resume.stock$stockID)
+  resume.stock <- merge(resume.stock,stock.industry,by='stockID')
+  index.quote <- get.industry.quote(industry = resume.stock$sectorID,begday = min(resume.stock$suspendDate))
+
+  #calculate stock's industry change pct during suspend time
+  resume.stock <- calc.match.industrypct(resume.stock,index.quote)
+  if(is.character(resume.stock)) return("None!")
+  #
+  resume.stock <- calc.match.indexcomponent(resume.stock,index.component)
+  if(is.character(resume.stock)) return("None!")
+
+
+  # get the final result
+  fund.info <- fund.info[fund.info$indexCode %in% resume.stock$inindex,]
+  fund.result <- merge(fund.info,resume.stock,by.x='indexCode',by.y = 'inindex',all.x =T)
+  fund.result <- arrange(fund.result,fundCode)
+  fund.result <- fund.result[,c("fundCode","fundName","indexCode","indexName","type","stockID","stockName",
+                                "wgtinindex","suspendDate","resumeDate","lastSuspendDay",
+                                "sectorID","sectorName","IndustryPct")]
+  fund.result <- calc.match.fundunit(fund.result)
+
+  return(fund.result)
+
+}
+
+
+
+
+
+
+
+# ===================== xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ======================
+# ===================== series of ultility functions  ===========================
+# ===================== xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ======================
+
+
+
+
+
+
+
 
 #' connect tinysoft database
 #'
@@ -139,6 +1124,160 @@ db.ts <- function(){
   odbcConnect("tinysoftdb")
 }
 
+
+
+#' ladder position port function
+#'
+#' @param assetRtn a data frame for stock and bond return.
+#' @param ruledf a data frame for position rule.
+#' @param rebalance rebalance frequency, default value is NULL.
+#' @return a data frame, containing return,postion,nav.
+#' @author han.qian
+#' @export
+#' @examples
+#' assetRtn <- rtndemo
+#' ruledf <- data.frame(nav = c(0,1.05,1.10,1.20),pos = c(0.15,0.25,0.35,0.5))
+#' re <- ladderNAV(assetRtn,ruledf)
+#' rebalance <- '2 years'
+#' re <- ladderNAV(assetRtn,ruledf,rebalance)
+ladderNAV <- function(assetRtn,ruledf,rebalance=NULL){
+  assetRtn[,c('pos','rtn','nav_rebalance','nav')] <- 0
+
+  if(is.null(rebalance)){
+    for(i in 1:nrow(assetRtn)){
+      if(i==1){
+        assetRtn$pos[i] <- ruledf$pos[1]
+      }else{
+        postmp <- findInterval(assetRtn$nav_rebalance[i-1],ruledf$nav)
+        assetRtn$pos[i] <- ruledf$pos[postmp]
+      }
+      assetRtn$rtn[i] <- assetRtn$stock[i]*assetRtn$pos[i]+assetRtn$bond[i]*(1-assetRtn$pos[i])
+      assetRtn$nav_rebalance[i] <- prod(1+assetRtn$rtn[1:i])
+      assetRtn$nav[i] <- prod(1+assetRtn$rtn[1:i])
+    }
+  }else{
+    reDate <- seq.Date(min(assetRtn$date),max(assetRtn$date),by = rebalance)
+    reDate <- QDataGet::trday.nearby(reDate,by=0)
+    for( i in 1:nrow(assetRtn)){
+      if(assetRtn$date[i] %in% reDate){
+        assetRtn$pos[i] <- ruledf$pos[1]
+        j <- i
+      }else{
+        postmp <- findInterval(assetRtn$nav_rebalance[i-1],ruledf$nav)
+        assetRtn$pos[i] <- ruledf$pos[postmp]
+      }
+      assetRtn$rtn[i] <- assetRtn$stock[i]*assetRtn$pos[i]+assetRtn$bond[i]*(1-assetRtn$pos[i])
+      assetRtn$nav_rebalance[i] <- prod(1+assetRtn$rtn[j:i])
+      assetRtn$nav[i] <- prod(1+assetRtn$rtn[1:i])
+    }
+  }
+
+  if(is.null(rebalance)){
+    assetRtn <- assetRtn[,c("date","stock","bond","pos","rtn","nav")]
+  }
+  return(assetRtn)
+}
+
+
+
+
+
+#' calculate fund's tracking error
+#'
+#' @param fundID is fund ID.
+#' @param begT is begin date.
+#' @param endT is end date, default value is \bold{today}.
+#' @param  scale is number of periods in a year,default value is 250.
+#' @examples
+#' library(WindR)
+#' w.start(showmenu = F)
+#' te <- fundTE(fundID='162411.OF',begT=as.Date('2013-06-28'))
+#' te <- fundTE(fundID='501018.OF',begT=as.Date('2016-06-28'))
+#' @export
+fundTE <- function(fundID,begT,endT=Sys.Date(),scale=250){
+  if(missing(begT)){
+    begT<-w.wss(fundID,'fund_setupdate')[[2]]
+    begT <- w.asDateTime(begT$FUND_SETUPDATE,asdate = T)
+  }
+
+  fundts <-w.wsd(fundID,"NAV_adj_return1",begT,endT,"Fill=Previous")[[2]]
+  tmp <- w.wss(fundID,'fund_benchindexcode')[[2]]
+  tmp <- tmp$FUND_BENCHINDEXCODE
+  benchts <-w.wsd(tmp,"pct_chg",begT,endT,"Fill=Previous")[[2]]
+  allts <- merge(fundts,benchts,by='DATETIME')
+  allts <- na.omit(allts)
+  allts <- transform(allts,NAV_ADJ_RETURN1=NAV_ADJ_RETURN1/100,PCT_CHG=PCT_CHG/100)
+  allts <- xts::xts(allts[,-1],order.by = allts[,1])
+  re <- round(PerformanceAnalytics::TrackingError(allts[,1],allts[,2],scale = scale),digits = 3)
+  return(re)
+}
+
+
+
+#' risk parity
+#'
+#' @param asset is \bold{\link{xts}} object.
+#' @param begT is begin date.
+#' @param endT is end date, default value is \bold{today}.
+#' @examples
+#' suppressMessages(library(PortfolioAnalytics))
+#' asset <- rtndemo
+#' asset <- xts::xts(asset[,-1],order.by = asset[,1])
+#'
+#'
+#' @export
+risk.parity <- function(asset,rebFreq = "month",training=250){
+  funds <- colnames(asset)
+  portf <- portfolio.spec(funds)
+  portf <- add.constraint(portf, type="full_investment")
+  portf <- add.constraint(portf, type="long_only")
+  portf <- add.objective(portf, type="return", name="mean")
+  portf <- add.objective(portf, type="risk_budget", name="ETL",
+     arguments=list(p=0.95), max_prisk=1/3, min_prisk=1/3)
+
+  # Quarterly rebalancing with 5 year training period
+  opt_maxret <- optimize.portfolio(R=asset, portfolio=portf,
+                                    optimize_method="ROI",
+                                    trace=TRUE)
+
+  # Monthly rebalancing with 5 year training period and 4 year rolling window
+  bt.opt2 <- optimize.portfolio.rebalancing(asset, portf,
+                                            optimize_method="ROI",
+                                            rebalance_on="months",
+                                            training_period=12,
+                                            rolling_window=12)
+
+  ## End(Not run)
+
+
+}
+
+
+
+
+
+#' lcdb.update.CorpStockPool
+#'
+#' @param filenames a vector of filename with path.
+#' @examples
+#' filenames <- c('D:/sqlitedb/core.csv','D:/sqlitedb/preclose.csv')
+#' lcdb.update.CorpStockPool(filenames)
+#' @export
+lcdb.update.CorpStockPool <- function(filenames){
+  all <- data.frame()
+  for(i in 1:length(filenames)){
+    tmp <- read.csv(filenames[i])
+    all <- rbind(all,tmp)
+  }
+  colnames(all) <- c('stockID','stockName',"MiscellaneousItem",'SecuMarket','FundBelong','CorpStockPool',
+                     'InvestAdviceNum','DimensionID','DimensionName','Remark','Operator','AddDate','AddTime',
+                     'CheckOperator','HavePosition','ValidBeginDate','ValidEndDate','SecurityCate')
+  all$stockID <- stringr::str_pad(all$stockID,6,pad = '0')
+  all$stockID <- stringr::str_c('EQ',all$stockID,sep = '')
+  con <- db.local()
+  dbWriteTable(con,'CT_CorpStockPool',all,overwrite=T,row.names=F)
+  dbDisconnect(con)
+}
 
 
 

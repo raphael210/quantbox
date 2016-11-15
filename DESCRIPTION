@@ -1,13 +1,13 @@
 Package: quantbox
 Type: Package
 Title: Auxiliary toolbox for quant research.
-Version: 0.0.1
+Version: 0.1.0
 Author: Andrew Dow
 Maintainer: Andrew Dow <taoaming1001@163.com>
 Description: This package aim to solve factor model,structured fund,market timing and other quant problems.
 License: GPL-3
 Depends:
-    RFactorModel,QDataGet,QFactorGet,QUtility,RODBC,RSQLite
+    RFactorModel,QDataGet,QFactorGet,QUtility,RODBC,RSQLite,dplyr
 Suggests:
     plyr,reshape2,lubridate,stringr,xts,ggplot2,
     testthat
