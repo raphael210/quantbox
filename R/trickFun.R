@@ -47,8 +47,10 @@ bank.rotation <- function(begDate,endDate=Sys.Date(),chgBar=0.2){
 
   #get TSF
   rebDates <- getRebDates(begDate,endDate,rebFreq = 'day')
-  TS <- getTS(rebDates,indexID = 'ES09440100')
-  TSF <- gf.PB_mrq_new(TS,datasource='quant')
+  TS <- getTS(rebDates,indexID = 'ES33480000')
+  tmp <- getTS(max(rebDates),indexID = 'EI000985')
+  TS <- TS[TS$stockID %in% tmp$stockID,]
+  TSF <- gf.PB_mrq(TS)
   tmp <- gf.F_ROE_new(TS,datasource='cs')
   TSF <- merge(TSF,tmp,by=c('date','stockID'),all.x=T)
   TSF$stockName <- stockID2name(TSF$stockID)
@@ -244,8 +246,8 @@ lcdb.update.QT_IndexTiming<- function(){
 #' @examples
 #' re <- getIV()
 #' @export
-getIV <- function(valtype=c('PE','PB'),caltype=c('median','mean'),begT=as.Date('2005-01-04'),
-                  endT=Sys.Date()-1){
+getIV <- function(valtype=c('PE','PB'),caltype=c('median','mean'),
+                  begT=as.Date('2005-01-04'),endT=Sys.Date()-1){
   valtype <- match.arg(valtype)
   caltype <- match.arg(caltype)
 
@@ -273,6 +275,7 @@ getIV <- function(valtype=c('PE','PB'),caltype=c('median','mean'),begT=as.Date('
     colnames(Datats) <- c("indexID","indexName","date","percentRank")
     result <- rbind(result,Datats)
   }
+  result <- merge.x(result,re,by = c("indexID","indexName","date"))
   result <- arrange(result,date,indexID)
   return(result)
 }
@@ -374,7 +377,7 @@ LLT <- function(indexID='EI000300',begT=as.Date('2005-01-04'),d=60,trancost=0.00
 #'
 #' @author Andrew Dow
 #' @examples
-#' re <- getIndustryMA()
+#' re <- getIndustryMA(begT=as.Date('2014-01-04'))
 #' @export
 getIndustryMA <- function(begT=as.Date('2005-01-04'),endT=Sys.Date()-1){
   con <- db.jy()
@@ -403,6 +406,9 @@ getIndustryMA <- function(begT=as.Date('2005-01-04'),endT=Sys.Date()-1){
     tmp <- tmp[,c('date','stockID','score')]
     indexScore <- rbind(indexScore,tmp)
   }
+  indexScore <- merge(indexScore,indexInd[,c('indexID','industryName')],
+                      by.x = 'stockID', by.y = 'indexID',all.x=T)
+  indexScore <- indexScore[,c( "date","stockID","industryName","score")]
   indexScore <- arrange(indexScore,date,stockID)
   odbcClose(con)
   return(indexScore)
