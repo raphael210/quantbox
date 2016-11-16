@@ -108,7 +108,7 @@ bank.rotation <- function(begT,endT=Sys.Date()-1,chgBar=0.2){
   bench <- bench[,c("date","pct_chg")]
   colnames(bench) <- c('date','indexRtn')
 
-  rtn <- merge.x(TSR[,c('date','pct')],bench)
+  rtn <- left_join(bench,TSR[,c('date','pct')],by='date')
   colnames(rtn) <- c("date","indexRtn","bankRtn")
   rtn <- na.omit(rtn)
 
