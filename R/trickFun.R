@@ -88,7 +88,8 @@ bank.rotation <- function(begT,endT=Sys.Date()-1,chgBar=0.2){
               ,'EQ'+s.SecuCode 'stockID'
               ,ClosePrice/PrevClosePrice-1 'pct'
               FROM QT_DailyQuote q,SecuMain s
-              where q.InnerCode=s.InnerCode and s.SecuCode in",tmp,
+              where q.InnerCode=s.InnerCode and SecuCategory=1
+              and s.SecuCode in",tmp,
               " and TradingDay>=",QT(min(bankPort$date)),
               " and TradingDay<=",QT(max(bankPort$date)),
               " order by TradingDay,s.SecuCode")
@@ -374,21 +375,20 @@ LLT <- function(indexID='EI000300',begT=as.Date('2005-01-04'),d=60,trancost=0.00
 #' @export
 getIndustryMA <- function(begT=as.Date('2005-01-04'),endT=Sys.Date()-1){
   con <- db.jy()
-  qr <- "select 'EI'+s.SecuCode 'indexID',s.SecuAbbr 'indexName',
+  qr <- "select 'EI'+s.SecuCode 'stockID',s.SecuAbbr 'stockName',
   c.DM 'industryCode',c.MS 'industryName'
   from LC_CorrIndexIndustry l,SecuMain s,CT_SystemConst c
-  where l.IndustryStandard=24
+  where l.IndustryStandard=24 and s.SecuMarket=83
   and l.IndexCode=s.InnerCode and l.IndustryCode=c.DM
   and c.LB=1804 and c.IVALUE=1"
   indexInd <- sqlQuery(con,qr,stringsAsFactors=F)
-  indexInd <- indexInd[!stringr::str_detect(indexInd$indexName,'三板'),]
 
-  indexQuote <- getIndexQuote(indexInd$indexID,begT,endT,variables='close',datasrc="jy")
+  indexQuote <- getIndexQuote(indexInd$stockID,begT,endT,variables='close',datasrc="jy")
   indexQuote <- arrange(indexQuote,stockID,date)
 
   indexScore <- data.frame()
   for(i in 1:nrow(indexInd)){
-    tmp <- indexQuote[indexQuote$stockID==indexInd$indexID[i],]
+    tmp <- indexQuote[indexQuote$stockID==indexInd$stockID[i],]
     tmp <- transform(tmp,MA1=TTR::SMA(close,8),MA2=TTR::SMA(close,13),
                      MA3=TTR::SMA(close,21),MA4=TTR::SMA(close,34),
                      MA5=TTR::SMA(close,55),MA6=TTR::SMA(close,89),
@@ -397,11 +397,10 @@ getIndustryMA <- function(begT=as.Date('2005-01-04'),endT=Sys.Date()-1){
     tmp$score <- (tmp$close>tmp$MA1)+(tmp$close>tmp$MA2)+(tmp$close>tmp$MA3)+(tmp$close>tmp$MA4)+
       (tmp$close>tmp$MA5)+(tmp$close>tmp$MA6)+(tmp$close>tmp$MA7)+(tmp$close>tmp$MA8)
     tmp <- tmp[,c('date','stockID','score')]
+    tmp$industryName <- indexInd$industryName[i]
+    tmp <- tmp[,c( "date","stockID","industryName","score")]
     indexScore <- rbind(indexScore,tmp)
   }
-  indexScore <- merge(indexScore,indexInd[,c('indexID','industryName')],
-                      by.x = 'stockID', by.y = 'indexID',all.x=T)
-  indexScore <- indexScore[,c( "date","stockID","industryName","score")]
   indexScore <- arrange(indexScore,date,stockID)
   odbcClose(con)
   return(indexScore)
