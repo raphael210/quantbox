@@ -461,3 +461,23 @@ rmPriceLimit <- function(TS,dateType=c('nextday','today'),priceType=c('upLimit',
 # ===================== series of gf functions  ===========================
 # ===================== xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ======================
 
+
+
+#' get volatility factor
+#'
+#'
+#' @author Andrew Dow
+#' @param TS is a TS object.
+#' @param nwin is time window.
+#' @return a TSF object
+#' @examples
+#' RebDates <- getRebDates(as.Date('2012-01-31'),as.Date('2016-9-30'),'month')
+#' TS <- getTS(RebDates,'EI000905')
+#' TSF <- gf.volatility(TS)
+#' TSF <- gf.volatility(TS,nwin=250)
+#' @export
+gf.volatility <- function(TS,nwin=60){
+  check.TS(TS)
+  funchar <- paste("StockStdev2(",nwin,")",sep='')
+  TS.getTech_ts(TS,funchar)
+}
