@@ -481,3 +481,150 @@ gf.volatility <- function(TS,nwin=60){
   funchar <- paste("StockStdev2(",nwin,")",sep='')
   TS.getTech_ts(TS,funchar)
 }
+
+
+
+#' get illiquidity factor
+#'
+#'
+#' @author Andrew Dow
+#' @param TS is a TS object.
+#' @param nwin is time window.
+#' @param loadData is logical param,for long term \bold{TS} object value should be TRUE.
+#' @return a TSF object
+#' @examples
+#' RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2016-9-30'),'month')
+#' TS <- getTS(RebDates,'EI000985')
+#' TSF <- gf.ILLIQ(TS)
+#' @export
+gf.ILLIQ <- function(TS,nwin=22,loadData=F){
+  check.TS(TS)
+  tmp.TSF <- data.frame()
+  conn <- db.local()
+  begT <- trday.nearby(min(TS$date),nwin)
+  endT <- max(TS$date)
+  if(loadData==FALSE){
+    qr <- paste("select t.TradingDay 'date',t.ID 'stockID',t.DailyReturn,t.TurnoverValue
+                from QT_DailyQuote t where t.TradingDay>=",rdate2int(begT),
+                " and t.TradingDay<=",rdate2int(endT),
+                " and t.ID in",brkQT(unique(TS$stockID)))
+    rawdata <- dbGetQuery(conn,qr)
+  }else{
+    cat('loading QT_DailyQuote data...\n')
+    rawdata <- dbReadTable(conn, 'QT_DailyQuote',
+                           select.cols = "TradingDay,ID,DailyReturn,TurnoverValue")
+    colnames(rawdata) <- c('date','stockID','DailyReturn','TurnoverValue')
+    rawdata <- dplyr::filter(rawdata,date>=rdate2int(begT),date<=rdate2int(endT))
+    rawdata <- dplyr::filter(rawdata,stockID %in% unique(TS$stockID))
+  }
+  dbDisconnect(conn)
+
+  rawdata$ILLIQ <- abs(rawdata$DailyReturn)/(rawdata$TurnoverValue/1e8)
+  rawdata <- rawdata[,c("date","stockID","ILLIQ")]
+
+  pb <- txtProgressBar(style = 3)
+  dates <- unique(TS$date)
+  for(i in dates){
+    tmp.TS <- TS[TS$date==i,]
+    begT <- trday.nearby(i,nwin)
+    endT <- as.Date(i,origin='1970-01-01')
+    re <- dplyr::filter(rawdata,date>=rdate2int(begT),date<=rdate2int(endT))
+    re <- summarise(group_by(re, stockID), factorscore=mean(ILLIQ,na.rm = T))
+    re <- na.omit(re)
+    tmp.TSF <- rbind(tmp.TSF,left_join(tmp.TS,re,by='stockID'))
+    setTxtProgressBar(pb,findInterval(i,dates)/length(dates))
+  }
+  close(pb)
+
+  TSF <- left_join(TS,tmp.TSF,by = c("date", "stockID"))
+  return(TSF)
+}
+
+
+
+
+#' get disposition effect factor
+#'
+#'
+#' @author Andrew Dow
+#' @param TS is a TS object.
+#' @param nwin is time window.
+#' @param loadData is logical param,for long term \bold{TS} object value should be TRUE.
+#' @return a TSF object
+#' @examples
+#' RebDates <- getRebDates(as.Date('2006-01-31'),as.Date('2016-9-30'),'month')
+#' TS <- getTS(RebDates,'EI000985')
+#' TSF <- gf.disposition(TS,loadData=T)
+#' @export
+gf.disposition <- function(TS,nwin=66,loadData=F){
+  check.TS(TS)
+  tmp.TSF <- data.frame()
+  conn <- db.local()
+  begT <- trday.nearby(min(TS$date),nwin)
+  endT <- max(TS$date)
+  if(loadData==FALSE){
+    qr <- paste("select t.TradingDay 'date',t.ID 'stockID',
+                t.RRClosePrice,t.TurnoverVolume,t.NonRestrictedShares
+                from QT_DailyQuote t where t.TradingDay>=",rdate2int(begT),
+                " and t.TradingDay<=",rdate2int(endT),
+                " and t.ID in",brkQT(unique(TS$stockID)))
+    rawdata <- dbGetQuery(conn,qr)
+  }else{
+    cat('loading QT_DailyQuote data...\n')
+    rawdata <- dbReadTable(conn, 'QT_DailyQuote',
+                           select.cols = "TradingDay,ID,RRClosePrice,TurnoverVolume,NonRestrictedShares")
+    colnames(rawdata) <- c('date','stockID','RRClosePrice','TurnoverVolume','NonRestrictedShares')
+    rawdata <- dplyr::filter(rawdata,date>=rdate2int(begT),date<=rdate2int(endT))
+    rawdata <- dplyr::filter(rawdata,stockID %in% unique(TS$stockID))
+  }
+  dbDisconnect(conn)
+  rawdata$turnover <- abs(rawdata$TurnoverVolume)/(rawdata$NonRestrictedShares*10000)
+  rawdata <- rawdata[,c("date","stockID","RRClosePrice","turnover")]
+  rawdata <- na.omit(rawdata)
+  rawdata <- rawdata[abs(rawdata$turnover)!=Inf,]
+  rawdata$date <- intdate2r(rawdata$date)
+
+  pb <- txtProgressBar(style = 3)
+  dates <- unique(TS$date)
+  for(i in dates){
+    tmp.TS <- TS[TS$date==i,]
+    begT <- trday.nearby(i,nwin)
+    endT <- as.Date(i,origin='1970-01-01')
+    re <- dplyr::filter(rawdata,date>=begT,date<=endT)
+    re <- arrange(re,stockID,date)
+
+    tmpprice <- dplyr::summarise(group_by(re, stockID),
+                                 P = last(RRClosePrice))
+    re <- left_join(re,tmpprice,by='stockID')
+    re$gain <- if_else(re$RRClosePrice<=re$P,
+                       (1-re$RRClosePrice/re$P),0)
+    re$loss <- if_else(re$RRClosePrice>re$P,
+                       (1-re$RRClosePrice/re$P),0)
+    re$turnovervise <- 1-re$turnover
+    re <- re[,c("date","stockID","gain","loss","turnover","turnovervise")]
+    re <- dplyr::arrange(re,stockID,desc(date))
+
+    tmp.stock <- unique(re$stockID)
+    for(j in tmp.stock){
+      tmp.re <- re[re$stockID==j,]
+      tmp.re <- tmp.re[-1,]
+      if(all(tmp.re$turnover==0) | nrow(tmp.re)!=nwin) next
+      x <- cumprod(tmp.re$turnovervise)
+      tmp.re$tmp <- c(1,x[-length(x)])
+      tmp.re$wgt <- tmp.re$turnover*tmp.re$tmp
+      tmp.re$wgt <- tmp.re$wgt/sum(tmp.re$wgt)
+      tmp.TSF <- rbind(tmp.TSF,data.frame(date=i,stockID=j,
+                                          factorscore=tmp.re$gain %*% tmp.re$wgt + tmp.re$loss %*% tmp.re$wgt))
+
+    }
+    setTxtProgressBar(pb,  findInterval(i,dates)/length(dates))
+  }
+  close(pb)
+  tmp.TSF <- transform(tmp.TSF,date=as.Date(date,origin='1970-01-01'),
+                       stockID=as.character(stockID))
+  tmp.TSF <- na.omit(tmp.TSF)
+  TSF <- left_join(TS,tmp.TSF,by = c("date", "stockID"))
+  return(TSF)
+}
+
+

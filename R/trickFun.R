@@ -166,6 +166,7 @@ lcdb.update.QT_IndexTiming<- function(){
       TS$date <- intdate2r(TS$date)
       if(i==1){
         tmp <- getRebDates(min(indexDate$begT),max(indexDate$endT),'day')
+        add.index.lcdb('EI801003')
         tmp <- getTS(tmp,indexID = 'EI801003')
         alldata <- gf.PE_ttm(tmp)
         alldata <- dplyr::rename(alldata,pettm=factorscore)
@@ -1271,5 +1272,50 @@ lcdb.update.CorpStockPool <- function(filenames){
   dbDisconnect(con)
 }
 
+
+#' combine rtn.periods and rtn.summary
+#'
+#' @param rtn an xts, vector, matrix, data frame, timeSeries or zoo object of asset returns
+#' @param freq An interval specification, one of "day", "week", "month", "quarter" and "year", optionally preceded by an integer and a space, or followed by "s".See \code{\link{cut.Date}} for detail.
+#' @param Rf risk free rate, in same period as your returns
+#' @return a matrix, giving the summary infomation of the rtn series,including Annualized Return,Annualized Std Dev,Annualized Sharpe,HitRatio,Worst Drawdown
+#' @seealso \code{\link[QUtility]{rtn.periods}}
+#' @seealso \code{\link[QUtility]{rtn.summary}}
+#' @examples
+#' rtn <- rtndemo
+#' rtn <- xts::xts(rtn[,-1],rtn[,1])
+#' rtn.persum(rtn)
+#' @export
+rtn.persum <- function(rtn,freq="year",Rf=0,showPer=T){
+
+  from <- unique(cut.Date2(zoo::index(rtn),freq,lab.side="begin"))
+  to <- unique(cut.Date2(zoo::index(rtn),freq,lab.side="end"))
+
+  rtn <- zoo::as.zoo(rtn)
+  # ---- periods cumulative rtn
+  table.periods <- timeSeries::fapply(timeSeries::as.timeSeries(rtn),from,to,FUN=PerformanceAnalytics::Return.cumulative)
+  table.periods <- as.matrix(table.periods)
+  rownames(table.periods) <- paste(from,to,sep=" ~ ")
+  # ---- overall cumulative rtn and annnualized rtn
+  table.overall <- PerformanceAnalytics::Return.cumulative(rtn)
+
+  rtn <- xts::as.xts(rtn)
+  annual <- as.matrix(Table.Annualized(rtn,Rf=Rf))
+
+  maxDD <- PerformanceAnalytics::maxDrawdown(rtn)
+  dim(maxDD) <- c(1, NCOL(rtn))
+  colnames(maxDD) <- colnames(rtn)
+  rownames(maxDD) <- "Worst Drawdown"
+  result <- rbind(table.periods,table.overall,annual,maxDD)
+  result <- as.data.frame(result)
+  if(showPer==T){
+    for(i in 1:ncol(result)){
+      result[,i] <- paste(round(result[,i],3)*100,'%',sep='')
+    }
+  }
+
+  return(result)
+
+}
 
 
