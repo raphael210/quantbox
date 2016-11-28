@@ -20,7 +20,7 @@ a TSF object
 get disposition effect factor
 }
 \examples{
-RebDates <- getRebDates(as.Date('2006-01-31'),as.Date('2016-9-30'),'month')
+RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2016-9-30'),'month')
 TS <- getTS(RebDates,'EI000985')
 TSF <- gf.disposition(TS,loadData=T)
 }

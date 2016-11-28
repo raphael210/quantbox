@@ -552,7 +552,7 @@ gf.ILLIQ <- function(TS,nwin=22,loadData=F){
 #' @param loadData is logical param,for long term \bold{TS} object value should be TRUE.
 #' @return a TSF object
 #' @examples
-#' RebDates <- getRebDates(as.Date('2006-01-31'),as.Date('2016-9-30'),'month')
+#' RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2016-9-30'),'month')
 #' TS <- getTS(RebDates,'EI000985')
 #' TSF <- gf.disposition(TS,loadData=T)
 #' @export
@@ -595,6 +595,7 @@ gf.disposition <- function(TS,nwin=66,loadData=F){
 
     tmpprice <- dplyr::summarise(group_by(re, stockID),
                                  P = last(RRClosePrice))
+
     re <- left_join(re,tmpprice,by='stockID')
     re$gain <- if_else(re$RRClosePrice<=re$P,
                        (1-re$RRClosePrice/re$P),0)
@@ -602,21 +603,31 @@ gf.disposition <- function(TS,nwin=66,loadData=F){
                        (1-re$RRClosePrice/re$P),0)
     re$turnovervise <- 1-re$turnover
     re <- re[,c("date","stockID","gain","loss","turnover","turnovervise")]
+
+    re <- dplyr::filter(re,date!=endT)
+    tmpprice <- dplyr::summarise(group_by(re, stockID),
+                                 zero=all(turnover==0),
+                                 n=n())
+    tmpprice <- dplyr::filter(tmpprice,n==nwin,zero==FALSE)
+    re <- dplyr::filter(re,stockID %in% tmpprice$stockID)
     re <- dplyr::arrange(re,stockID,desc(date))
 
-    tmp.stock <- unique(re$stockID)
-    for(j in tmp.stock){
-      tmp.re <- re[re$stockID==j,]
-      tmp.re <- tmp.re[-1,]
-      if(all(tmp.re$turnover==0) | nrow(tmp.re)!=nwin) next
-      x <- cumprod(tmp.re$turnovervise)
-      tmp.re$tmp <- c(1,x[-length(x)])
-      tmp.re$wgt <- tmp.re$turnover*tmp.re$tmp
-      tmp.re$wgt <- tmp.re$wgt/sum(tmp.re$wgt)
-      tmp.TSF <- rbind(tmp.TSF,data.frame(date=i,stockID=j,
-                                          factorscore=tmp.re$gain %*% tmp.re$wgt + tmp.re$loss %*% tmp.re$wgt))
+    re_stockID <- group_by(re,stockID)
+    tmpdf <- re_stockID %>% do(tmp = c(1,cumprod(.$turnovervise[1:(nwin-1)])))
+    tmpdf <- tmpdf %>% do(data.frame(tmp = .$tmp))
+    re <- cbind(re,tmpdf)
 
-    }
+    re_stockID <- group_by(re,stockID)
+    tmpdf <- re_stockID %>% do(wgt = .$turnover*.$tmp)
+    tmpdf <- tmpdf %>% do(data.frame(wgt = .$wgt,tot=sum(.$wgt)))
+    tmpdf$wgt <- tmpdf$wgt/tmpdf$tot
+    tmpdf$tot <- NULL
+    re <- cbind(re,tmpdf)
+
+    tmp <- as.data.frame(summarise(group_by(re,stockID),factorscore=as.numeric(gain %*% wgt+loss %*% wgt)))
+    tmp$date <- endT
+    tmp <- tmp[,c("date","stockID","factorscore")]
+    tmp.TSF <- rbind(tmp.TSF,tmp)
     setTxtProgressBar(pb,  findInterval(i,dates)/length(dates))
   }
   close(pb)
@@ -626,5 +637,6 @@ gf.disposition <- function(TS,nwin=66,loadData=F){
   TSF <- left_join(TS,tmp.TSF,by = c("date", "stockID"))
   return(TSF)
 }
+
 
 
