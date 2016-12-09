@@ -365,14 +365,14 @@ rmSuspend <- function(TS,type=c('nextday','today','both'),datasrc=defaultDataSRC
     dbDisconnect(con)
   }else if(datasrc=='ts'){
     if(type=='nextday'){
-      TS_next <- data.frame(date=trday.nearby(TS$date,by=-1), stockID=TS$stockID)
+      TS_next <- data.frame(date=trday.nearby(TS$date,by=1), stockID=TS$stockID)
       TS_next <- TS.getTech_ts(TS_next, funchar="istradeday4()",varname="trading")
       re <- TS[TS_next$trading == 1, ]
     }else if(type=='today'){
       TS_today <- TS.getTech_ts(TS, funchar="istradeday4()",varname="trading")
       re <- TS[TS_today$trading == 1, ]
     }else{
-      TS_next <- data.frame(date=trday.nearby(TS$date,by=-1), stockID=TS$stockID)
+      TS_next <- data.frame(date=trday.nearby(TS$date,by=1), stockID=TS$stockID)
       TS_next <- TS.getTech_ts(TS_next, funchar="istradeday4()",varname="trading")
       TS <- TS[TS_next$trading == 1, ]
       TS_today <- TS.getTech_ts(TS, funchar="istradeday4()",varname="trading")
@@ -432,7 +432,7 @@ rmPriceLimit <- function(TS,dateType=c('nextday','today'),priceType=c('upLimit',
   dateType <- match.arg(dateType)
   priceType <- match.arg(priceType)
   if(dateType=='nextday'){
-    TStmp <- data.frame(date=trday.nearby(TS$date,by=-1), stockID=TS$stockID)
+    TStmp <- data.frame(date=trday.nearby(TS$date,by=1), stockID=TS$stockID)
     TStmp$date <- rdate2int(TStmp$date)
   }else if(dateType=='today'){
     TStmp <- TS
@@ -479,7 +479,9 @@ rmPriceLimit <- function(TS,dateType=c('nextday','today'),priceType=c('upLimit',
 gf.volatility <- function(TS,nwin=60){
   check.TS(TS)
   funchar <- paste("StockStdev2(",nwin,")",sep='')
-  TS.getTech_ts(TS,funchar)
+  TSF <- TS.getTech_ts(TS,funchar)
+  colnames(TSF) <- c('date','stockID','factorscore')
+  return(TSF)
 }
 
 
@@ -494,14 +496,14 @@ gf.volatility <- function(TS,nwin=60){
 #' @return a TSF object
 #' @examples
 #' RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2016-9-30'),'month')
-#' TS <- getTS(RebDates,'EI000985')
+#' TS <- getTS(RebDates,'EI000300')
 #' TSF <- gf.ILLIQ(TS)
 #' @export
 gf.ILLIQ <- function(TS,nwin=22,loadData=F){
   check.TS(TS)
   tmp.TSF <- data.frame()
   conn <- db.local()
-  begT <- trday.nearby(min(TS$date),nwin)
+  begT <- trday.nearby(min(TS$date),-nwin)
   endT <- max(TS$date)
   if(loadData==FALSE){
     qr <- paste("select t.TradingDay 'date',t.ID 'stockID',t.DailyReturn,t.TurnoverValue
@@ -526,7 +528,7 @@ gf.ILLIQ <- function(TS,nwin=22,loadData=F){
   dates <- unique(TS$date)
   for(i in dates){
     tmp.TS <- TS[TS$date==i,]
-    begT <- trday.nearby(i,nwin)
+    begT <- trday.nearby(i,-nwin)
     endT <- as.Date(i,origin='1970-01-01')
     re <- dplyr::filter(rawdata,date>=rdate2int(begT),date<=rdate2int(endT))
     re <- summarise(group_by(re, stockID), factorscore=mean(ILLIQ,na.rm = T))
@@ -560,7 +562,7 @@ gf.disposition <- function(TS,nwin=66,loadData=F){
   check.TS(TS)
   tmp.TSF <- data.frame()
   conn <- db.local()
-  begT <- trday.nearby(min(TS$date),nwin)
+  begT <- trday.nearby(min(TS$date),-nwin)
   endT <- max(TS$date)
   if(loadData==FALSE){
     qr <- paste("select t.TradingDay 'date',t.ID 'stockID',
@@ -588,7 +590,7 @@ gf.disposition <- function(TS,nwin=66,loadData=F){
   dates <- unique(TS$date)
   for(i in dates){
     tmp.TS <- TS[TS$date==i,]
-    begT <- trday.nearby(i,nwin)
+    begT <- trday.nearby(i,-nwin)
     endT <- as.Date(i,origin='1970-01-01')
     re <- dplyr::filter(rawdata,date>=begT,date<=endT)
     re <- arrange(re,stockID,date)

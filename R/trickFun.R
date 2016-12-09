@@ -216,8 +216,8 @@ lcdb.update.QT_IndexTiming<- function(){
 
   con <- db.local()
   begT <- dbGetQuery(con,"select max(date) 'date' from QT_IndexTiming")
-  begT <- trday.nearby(intdate2r(begT$date),by=-1)
-  endT <- trday.nearby(Sys.Date(),by=1)
+  begT <- trday.nearby(intdate2r(begT$date),by=1)
+  endT <- trday.nearby(Sys.Date(),by=-1)
   if(begT>endT){
     return('Done!')
   }else{
@@ -521,7 +521,7 @@ gridTrade.IF <- function(indexID,begT,endT=Sys.Date()-1,para){
     odbcClose(con)
     indexData <- transform(indexData,date=intdate2r(date),effectiveDate=intdate2r(effectiveDate),
                            lastTradingDate=intdate2r(lastTradingDate))
-    indexData$lastTradingDate <- trday.nearby(indexData$lastTradingDate,by=1)
+    indexData$lastTradingDate <- trday.nearby(indexData$lastTradingDate,by=-1)
 
     # keep the next quarter contract
     indexData$tmp <- c(0)
@@ -789,10 +789,10 @@ resumeArbitrage <- function(begT,endT){
 
       resume.stock$suspendDate <- intdate2r(resume.stock$suspendDate)
       resume.stock$resumeDate <- intdate2r(resume.stock$resumeDate)
-      resume.stock$lastSuspendDay <- trday.nearby(resume.stock$resumeDate, by = 1)
+      resume.stock$lastSuspendDay <- trday.nearby(resume.stock$resumeDate, by = -1)
       resume.stock <- resume.stock[(resume.stock$resumeDate-resume.stock$suspendDate)>dayinterval,]
     }else{
-      tmp.begT <- trday.nearby(begT)
+      tmp.begT <- trday.nearby(begT,by=0)
       dates <- trday.get(begT =tmp.begT, endT = endT)
       dates <- rdate2int(dates)
       txtname <- c(paste("T:/Input/ZS/index/csitfp4fund",dates,"001.txt",sep = ""),
@@ -829,7 +829,7 @@ resumeArbitrage <- function(begT,endT){
       if(nrow(resume.stock)>0){
         resume.stock$suspendDate <- intdate2r(resume.stock$suspendDate)
         resume.stock <- merge(resume.stock,result,by="stockID")
-        resume.stock$lastSuspendDay <- trday.nearby(resume.stock$resumeDate, by = 1)
+        resume.stock$lastSuspendDay <- trday.nearby(resume.stock$resumeDate, by = -1)
         resume.stock <- resume.stock[(resume.stock$resumeDate-resume.stock$suspendDate)>dayinterval,]
       }
 
@@ -1054,7 +1054,7 @@ resumeArbitrage <- function(begT,endT){
 
   #get resumption stock in the traced index of these lof and sf
   tmp.index <- toupper(unique(fund.info$indexCode))
-  tmp.date <- trday.offset(min(resume.stock$suspendDate), by = months(-1))
+  tmp.date <- trday.offset(min(resume.stock$suspendDate), by = months(1))
   index.component <- get.index.component(resume.stock$stockID,tmp.index,tmp.date)
   if(is.character(index.component)) return("None!")
 
@@ -1317,5 +1317,11 @@ rtn.persum <- function(rtn,freq="year",Rf=0,showPer=T){
   return(result)
 
 }
+
+
+
+
+
+
 
 

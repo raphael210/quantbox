@@ -157,7 +157,7 @@ lcdb.update.FF3 <- function(){
     con <- db.local()
     begT <- dbGetQuery(con,"select max(date) 'endDate' from QT_FactorScore_amtao where factorName='SMB'")[[1]]
     dbDisconnect(con)
-    begT <- trday.nearby(intdate2r(begT),by = -1)
+    begT <- trday.nearby(intdate2r(begT),by = 1)
     endT <- Sys.Date()-1
     if(begT>endT){
       return()
@@ -231,7 +231,7 @@ lcdb.update.FF3 <- function(){
     con <- db.local()
     begT <- dbGetQuery(con,"select max(date) 'endDate' from QT_FactorScore_amtao where factorName='HML'")[[1]]
     dbDisconnect(con)
-    begT <- trday.nearby(intdate2r(begT),by = -1)
+    begT <- trday.nearby(intdate2r(begT),by = 1)
     endT <- Sys.Date()-1
     if(begT>endT){
       return()
@@ -341,7 +341,7 @@ bank.factorscore <- function(type=c('update','build')){
     con <- db.local()
     begT <- dbGetQuery(con,"select max(date) 'endDate' from QT_FactorScore_amtao where factorName='PB_mrq_'")[[1]]
     dbDisconnect(con)
-    begT <- trday.nearby(intdate2r(begT),by = -1)
+    begT <- trday.nearby(intdate2r(begT),by = 1)
     endT <- Sys.Date()-1
     if(begT>endT){
       return()
@@ -678,7 +678,7 @@ lcdb.addindex.QT_IndexTiming<- function(indexset){
 rmSuspend.nextday <- function(TS){
 
   con <- db.local()
-  TS$tmpdate <- trday.nearby(TS$date,by=-1)
+  TS$tmpdate <- trday.nearby(TS$date,by=1)
   TS$tmpdate <- rdate2int(TS$tmpdate)
   dbWriteTable(con,'yrf_tmp',TS[,c('tmpdate','stockID')],overwrite=T,append=F,row.names=F)
   qr <- "SELECT * FROM yrf_tmp y
@@ -723,7 +723,7 @@ rmNegativeEvents.AnalystDown <- function(TS){
 
 
 rmNegativeEvents.PPUnFrozen <- function(TS,bar=5){
-  TS$date_end <- trday.nearby(TS$date,-5)
+  TS$date_end <- trday.nearby(TS$date,5)
   begT <- min(TS$date)
   endT <- max(TS$date_end)
   con <- db.jy()
@@ -737,7 +737,7 @@ rmNegativeEvents.PPUnFrozen <- function(TS,bar=5){
   re <- sqlQuery(con,qr)
   odbcClose(con)
   re$date <- intdate2r(re$date)
-  re$date_from <- trday.nearby(re$date,4)
+  re$date_from <- trday.nearby(re$date,-4)
   re <- re %>% rowwise() %>%
     do(data.frame(date=getRebDates(.$date_from, .$date,'day'),
                   stockID=rep(.$stockID,5)))

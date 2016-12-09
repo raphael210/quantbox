@@ -21,7 +21,7 @@ get illiquidity factor
 }
 \examples{
 RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2016-9-30'),'month')
-TS <- getTS(RebDates,'EI000985')
+TS <- getTS(RebDates,'EI000300')
 TSF <- gf.ILLIQ(TS)
 }
 \author{
