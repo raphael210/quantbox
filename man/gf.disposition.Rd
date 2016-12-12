@@ -4,14 +4,12 @@
 \alias{gf.disposition}
 \title{get disposition effect factor}
 \usage{
-gf.disposition(TS, nwin = 66, loadData = F)
+gf.disposition(TS, nwin = 66)
 }
 \arguments{
 \item{TS}{is a TS object.}
 
 \item{nwin}{is time window.}
-
-\item{loadData}{is logical param,for long term \bold{TS} object value should be TRUE.}
 }
 \value{
 a TSF object
@@ -22,7 +20,7 @@ get disposition effect factor
 \examples{
 RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2016-9-30'),'month')
 TS <- getTS(RebDates,'EI000985')
-TSF <- gf.disposition(TS,loadData=T)
+TSF <- gf.disposition(TS)
 }
 \author{
 Andrew Dow

@@ -4,14 +4,12 @@
 \alias{gf.ILLIQ}
 \title{get illiquidity factor}
 \usage{
-gf.ILLIQ(TS, nwin = 22, loadData = F)
+gf.ILLIQ(TS, nwin = 22)
 }
 \arguments{
 \item{TS}{is a TS object.}
 
 \item{nwin}{is time window.}
-
-\item{loadData}{is logical param,for long term \bold{TS} object value should be TRUE.}
 }
 \value{
 a TSF object

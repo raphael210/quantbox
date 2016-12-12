@@ -492,33 +492,23 @@ gf.volatility <- function(TS,nwin=60){
 #' @author Andrew Dow
 #' @param TS is a TS object.
 #' @param nwin is time window.
-#' @param loadData is logical param,for long term \bold{TS} object value should be TRUE.
 #' @return a TSF object
 #' @examples
 #' RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2016-9-30'),'month')
 #' TS <- getTS(RebDates,'EI000300')
 #' TSF <- gf.ILLIQ(TS)
 #' @export
-gf.ILLIQ <- function(TS,nwin=22,loadData=F){
+gf.ILLIQ <- function(TS,nwin=22){
   check.TS(TS)
-  tmp.TSF <- data.frame()
   conn <- db.local()
   begT <- trday.nearby(min(TS$date),-nwin)
   endT <- max(TS$date)
-  if(loadData==FALSE){
-    qr <- paste("select t.TradingDay 'date',t.ID 'stockID',t.DailyReturn,t.TurnoverValue
-                from QT_DailyQuote t where t.TradingDay>=",rdate2int(begT),
-                " and t.TradingDay<=",rdate2int(endT),
-                " and t.ID in",brkQT(unique(TS$stockID)))
-    rawdata <- dbGetQuery(conn,qr)
-  }else{
-    cat('loading QT_DailyQuote data...\n')
-    rawdata <- dbReadTable(conn, 'QT_DailyQuote',
-                           select.cols = "TradingDay,ID,DailyReturn,TurnoverValue")
-    colnames(rawdata) <- c('date','stockID','DailyReturn','TurnoverValue')
-    rawdata <- dplyr::filter(rawdata,date>=rdate2int(begT),date<=rdate2int(endT))
-    rawdata <- dplyr::filter(rawdata,stockID %in% unique(TS$stockID))
-  }
+  qr <- paste("select t.TradingDay 'date',t.ID 'stockID',t.DailyReturn,t.TurnoverValue
+              from QT_DailyQuote2 t where t.TradingDay>=",rdate2int(begT),
+              " and t.TradingDay<=",rdate2int(endT))
+  rawdata <- dbGetQuery(conn,qr)
+  rawdata <- dplyr::filter(rawdata,stockID %in% unique(TS$stockID))
+
   dbDisconnect(conn)
 
   rawdata$ILLIQ <- abs(rawdata$DailyReturn)/(rawdata$TurnoverValue/1e8)
@@ -526,6 +516,7 @@ gf.ILLIQ <- function(TS,nwin=22,loadData=F){
 
   pb <- txtProgressBar(style = 3)
   dates <- unique(TS$date)
+  tmp.TSF <- data.frame()
   for(i in dates){
     tmp.TS <- TS[TS$date==i,]
     begT <- trday.nearby(i,-nwin)
@@ -544,41 +535,32 @@ gf.ILLIQ <- function(TS,nwin=22,loadData=F){
 
 
 
-
 #' get disposition effect factor
 #'
 #'
 #' @author Andrew Dow
 #' @param TS is a TS object.
 #' @param nwin is time window.
-#' @param loadData is logical param,for long term \bold{TS} object value should be TRUE.
 #' @return a TSF object
 #' @examples
 #' RebDates <- getRebDates(as.Date('2015-01-31'),as.Date('2016-9-30'),'month')
 #' TS <- getTS(RebDates,'EI000985')
-#' TSF <- gf.disposition(TS,loadData=T)
+#' TSF <- gf.disposition(TS)
 #' @export
-gf.disposition <- function(TS,nwin=66,loadData=F){
+gf.disposition <- function(TS,nwin=66){
   check.TS(TS)
   tmp.TSF <- data.frame()
   conn <- db.local()
   begT <- trday.nearby(min(TS$date),-nwin)
   endT <- max(TS$date)
-  if(loadData==FALSE){
-    qr <- paste("select t.TradingDay 'date',t.ID 'stockID',
-                t.RRClosePrice,t.TurnoverVolume,t.NonRestrictedShares
-                from QT_DailyQuote t where t.TradingDay>=",rdate2int(begT),
-                " and t.TradingDay<=",rdate2int(endT),
-                " and t.ID in",brkQT(unique(TS$stockID)))
-    rawdata <- dbGetQuery(conn,qr)
-  }else{
-    cat('loading QT_DailyQuote data...\n')
-    rawdata <- dbReadTable(conn, 'QT_DailyQuote',
-                           select.cols = "TradingDay,ID,RRClosePrice,TurnoverVolume,NonRestrictedShares")
-    colnames(rawdata) <- c('date','stockID','RRClosePrice','TurnoverVolume','NonRestrictedShares')
-    rawdata <- dplyr::filter(rawdata,date>=rdate2int(begT),date<=rdate2int(endT))
-    rawdata <- dplyr::filter(rawdata,stockID %in% unique(TS$stockID))
-  }
+
+  qr <- paste("select t.TradingDay 'date',t.ID 'stockID',
+              t.RRClosePrice,t.TurnoverVolume,t.NonRestrictedShares
+              from QT_DailyQuote2 t where t.TradingDay>=",rdate2int(begT),
+              " and t.TradingDay<=",rdate2int(endT))
+  rawdata <- dbGetQuery(conn,qr)
+  rawdata <- dplyr::filter(rawdata,stockID %in% unique(TS$stockID))
+
   dbDisconnect(conn)
   rawdata$turnover <- abs(rawdata$TurnoverVolume)/(rawdata$NonRestrictedShares*10000)
   rawdata <- rawdata[,c("date","stockID","RRClosePrice","turnover")]
@@ -639,6 +621,5 @@ gf.disposition <- function(TS,nwin=66,loadData=F){
   TSF <- left_join(TS,tmp.TSF,by = c("date", "stockID"))
   return(TSF)
 }
-
 
 
