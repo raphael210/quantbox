@@ -503,15 +503,15 @@ gf.ILLIQ <- function(TS,nwin=22){
   conn <- db.local()
   begT <- trday.nearby(min(TS$date),-nwin)
   endT <- max(TS$date)
-  qr <- paste("select t.TradingDay 'date',t.ID 'stockID',t.DailyReturn,t.TurnoverValue
+  qr <- paste("select t.TradingDay 'date',t.ID 'stockID',t.DailyReturn,
+              t.TurnoverValue/100000000 'TurnoverValue'
               from QT_DailyQuote2 t where t.TradingDay>=",rdate2int(begT),
               " and t.TradingDay<=",rdate2int(endT))
   rawdata <- dbGetQuery(conn,qr)
-  rawdata <- dplyr::filter(rawdata,stockID %in% unique(TS$stockID))
-
+  rawdata <- dplyr::filter(rawdata,stockID %in% unique(TS$stockID),TurnoverValue>0)
   dbDisconnect(conn)
 
-  rawdata$ILLIQ <- abs(rawdata$DailyReturn)/(rawdata$TurnoverValue/1e8)
+  rawdata$ILLIQ <- abs(rawdata$DailyReturn)/rawdata$TurnoverValue
   rawdata <- rawdata[,c("date","stockID","ILLIQ")]
 
   pb <- txtProgressBar(style = 3)
@@ -549,27 +549,26 @@ gf.ILLIQ <- function(TS,nwin=22){
 #' @export
 gf.disposition <- function(TS,nwin=66){
   check.TS(TS)
-  tmp.TSF <- data.frame()
   conn <- db.local()
   begT <- trday.nearby(min(TS$date),-nwin)
   endT <- max(TS$date)
 
   qr <- paste("select t.TradingDay 'date',t.ID 'stockID',
-              t.RRClosePrice,t.TurnoverVolume,t.NonRestrictedShares
+              t.RRClosePrice,t.TurnoverVolume/10000 'TurnoverVolume',t.NonRestrictedShares
               from QT_DailyQuote2 t where t.TradingDay>=",rdate2int(begT),
               " and t.TradingDay<=",rdate2int(endT))
   rawdata <- dbGetQuery(conn,qr)
-  rawdata <- dplyr::filter(rawdata,stockID %in% unique(TS$stockID))
+  rawdata <- dplyr::filter(rawdata,stockID %in% unique(TS$stockID),NonRestrictedShares>0)
 
   dbDisconnect(conn)
-  rawdata$turnover <- abs(rawdata$TurnoverVolume)/(rawdata$NonRestrictedShares*10000)
+  rawdata$turnover <- abs(rawdata$TurnoverVolume)/rawdata$NonRestrictedShares
   rawdata <- rawdata[,c("date","stockID","RRClosePrice","turnover")]
   rawdata <- na.omit(rawdata)
-  rawdata <- rawdata[abs(rawdata$turnover)!=Inf,]
   rawdata$date <- intdate2r(rawdata$date)
 
   pb <- txtProgressBar(style = 3)
   dates <- unique(TS$date)
+  tmp.TSF <- data.frame()
   for(i in dates){
     tmp.TS <- TS[TS$date==i,]
     begT <- trday.nearby(i,-nwin)
