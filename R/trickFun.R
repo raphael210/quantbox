@@ -1235,44 +1235,6 @@ fundTE <- function(fundID,begT,endT=Sys.Date(),scale=250){
 
 
 
-#' risk parity
-#'
-#' @param asset is \bold{\link{xts}} object.
-#' @param begT is begin date.
-#' @param endT is end date, default value is \bold{today}.
-#' @examples
-#' suppressMessages(library(PortfolioAnalytics))
-#' asset <- rtndemo
-#' asset <- xts::xts(asset[,-1],order.by = asset[,1])
-#'
-#'
-#' @export
-risk.parity <- function(asset,rebFreq = "month",training=250){
-  funds <- colnames(asset)
-  portf <- portfolio.spec(funds)
-  portf <- add.constraint(portf, type="full_investment")
-  portf <- add.constraint(portf, type="long_only")
-  portf <- add.objective(portf, type="return", name="mean")
-  portf <- add.objective(portf, type="risk_budget", name="ETL",
-     arguments=list(p=0.95), max_prisk=1/3, min_prisk=1/3)
-
-  # Quarterly rebalancing with 5 year training period
-  opt_maxret <- optimize.portfolio(R=asset, portfolio=portf,
-                                    optimize_method="ROI",
-                                    trace=TRUE)
-
-  # Monthly rebalancing with 5 year training period and 4 year rolling window
-  bt.opt2 <- optimize.portfolio.rebalancing(asset, portf,
-                                            optimize_method="ROI",
-                                            rebalance_on="months",
-                                            training_period=12,
-                                            rolling_window=12)
-
-  ## End(Not run)
-
-
-}
-
 
 
 

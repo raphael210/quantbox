@@ -504,14 +504,13 @@ gf.ILLIQ <- function(TS,nwin=22){
   begT <- trday.nearby(min(TS$date),-nwin)
   endT <- max(TS$date)
   qr <- paste("select t.TradingDay 'date',t.ID 'stockID',t.DailyReturn,
-              t.TurnoverValue/100000000 'TurnoverValue'
-              from QT_DailyQuote2 t where t.TradingDay>=",rdate2int(begT),
+              t.TurnoverValue from QT_DailyQuote2 t where t.TradingDay>=",rdate2int(begT),
               " and t.TradingDay<=",rdate2int(endT))
   rawdata <- dbGetQuery(conn,qr)
   rawdata <- dplyr::filter(rawdata,stockID %in% unique(TS$stockID),TurnoverValue>0)
   dbDisconnect(conn)
 
-  rawdata$ILLIQ <- abs(rawdata$DailyReturn)/rawdata$TurnoverValue
+  rawdata$ILLIQ <- abs(rawdata$DailyReturn)/(rawdata$TurnoverValue/100000000)
   rawdata <- rawdata[,c("date","stockID","ILLIQ")]
 
   pb <- txtProgressBar(style = 3)
