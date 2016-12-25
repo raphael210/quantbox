@@ -660,6 +660,57 @@ rmNegativeEvents.PPUnFrozen <- function(TS,bar=5){
 }
 
 
+#' lcfs.update.amtao
+#'
+#' @examples
+#'
+#' factorFun="gf.ILLIQ"
+#' factorPar=""
+#' factorDir=1
+#' factorID="F000018"
+#' begT = as.Date("2000-01-01")
+#' endT = Sys.Date()-1
+#' splitNbin = "month"
+#' lcfs.update.amtao()
+lcfs.update.amtao <- function(factorFun,factorPar,factorDir,factorID,begT,endT,splitNbin) {
+
+  con <- db.local()
+
+  loopT <- dbGetQuery(con,"select distinct tradingday from QT_FactorScore order by tradingday")[[1]]
+  loopT <- loopT[loopT>=rdate2int(begT) & loopT<=rdate2int(endT)]
+  loopT.L <- split(loopT,cut(intdate2r(loopT),splitNbin))
+
+  subfun <- function(Ti){
+    cat(paste(" ",min(Ti),"to",max(Ti)," ...\n"))
+    dates <- paste(Ti,collapse=",")
+    TS <- dbGetQuery(con,paste("select TradingDay as date, ID as stockID from QT_FactorScore where TradingDay in (",dates,")"))
+    TS$date <- intdate2r(TS$date)
+    TS <- plyr::arrange(TS,date,stockID)
+    TSF <- getRawFactor(TS,factorFun,factorPar)
+    TSF$date <- rdate2int(TSF$date)
+    TSF <- renameCol(TSF,src="factorscore",tgt=factorID)
+
+    for(Tij in Ti){ # update the factorscore day by day.
+      #     Tij <- Ti[1]
+      # cat(paste(" ",Tij))
+      dbWriteTable(con,"yrf_tmp",TSF[TSF$date==Tij,],overwrite=TRUE,append=FALSE,row.names=FALSE)
+      qr <- paste("UPDATE QT_FactorScore
+                SET ",factorID,"= (SELECT ",factorID," FROM yrf_tmp WHERE yrf_tmp.stockID =QT_FactorScore.ID)
+                WHERE QT_FactorScore.ID = (SELECT stockID FROM yrf_tmp WHERE yrf_tmp.stockID =QT_FactorScore.ID)
+                and QT_FactorScore.TradingDay =",Tij)
+      res <- dbSendQuery(con,qr)
+      dbClearResult(res)
+    }
+    gc()
+  }
+
+  cat(paste("Function lcfs.add: updateing factor score of",factorID,".... \n"))
+  plyr::l_ply(loopT.L, subfun, .progress = plyr::progress_text(style=3))
+  dbDisconnect(con)
+}
+
+
+
 
 
 
