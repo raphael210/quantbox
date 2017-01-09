@@ -322,7 +322,7 @@ addwgt2port_amtao <- function(port,wgtType=c('fs','fssqrt','ffsMV'),wgtmax=NULL,
       df <- plyr::arrange(df,rank)
       return(df$wgt)
     }
-    port <- ddply(port,'date',here(transform),newwgt=subfun(wgt))
+    port <- plyr::ddply(port,'date',plyr::here(transform),newwgt=subfun(wgt))
     port$wgt <- port$newwgt
     port$newwgt <- NULL
   }
