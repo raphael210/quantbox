@@ -1129,10 +1129,17 @@ resumeArbitrage <- function(begT,endT){
 #' write data frame to clipboard
 #' @export
 write.clipboard <- function(x,row.names=FALSE,col.names=TRUE,...) {
-  write.table(x,"clipboard",sep="\t",row.names=row.names,col.names=col.names,...)
+  write.table(x,"clipboard-16384",sep="\t",row.names=row.names,col.names=col.names,...)
 }
 
-
+#' xts2df
+#'
+#' turn xts to dataframe
+#' @export
+xts2df <- function(x) {
+  df <- data.frame(date=zoo::index(x),zoo::coredata(x))
+  return(df)
+}
 
 
 #' connect tinysoft database
