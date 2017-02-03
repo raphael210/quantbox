@@ -1321,8 +1321,19 @@ rtn.persum <- function(rtn,freq="year",Rf=0,showPer=T){
 }
 
 
-
-
+#' percent
+#'
+#' Percent formatter: multiply by one hundred and display percent sign.
+#' @param x a numeric vector to format
+#' @return a function with single parameter x, a numeric vector, that returns a character vector
+#' @seealso \code{\link[scales]{percent}}
+#' @examples
+#' x <- c(-1, 0, 0.1, 0.555555, 1, 100)
+#' percent(x)
+#' @export
+percent <- function(x, digits = 2, format = "f", ...) {
+  paste0(formatC(100 * x, format = format, digits = digits, ...), "%")
+}
 
 
 
