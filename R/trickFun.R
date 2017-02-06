@@ -1336,5 +1336,37 @@ percent <- function(x, digits = 2, format = "f", ...) {
 }
 
 
-
+#' getIndexBasicInfo
+#'
+#'
+#' @param indexID
+#' @examples
+#' index <- getIndexBasicInfo('EI000300')
+#' index <- getIndexBasicInfo(c('EI000300','EI000905'))
+#' @export
+getIndexBasicInfo <- function(indexID) {
+  tmp <- brkQT(substr(indexID,3,8))
+  qr <- paste("SELECT 'EI'+s.SecuCode 'SecuCode'
+              ,s.SecuAbbr
+              ,ct1.MS 'IndexType'
+              ,ct2.MS 'IndustryStandard'
+              ,[PubOrgName]
+              ,CONVERT(VARCHAR,PubDate,112) 'PubDate'
+              ,CONVERT(VARCHAR,BaseDate,112) 'BaseDate'
+              ,BasePoint
+              ,ct3.MS 'WAMethod'
+              ,ComponentSum
+              ,ct3.MS 'ComponentAdPeriod'
+              ,EndDate
+              ,CONVERT(VARCHAR,l.XGRQ,112) 'XGRQ'
+              FROM LC_IndexBasicInfo l
+              left join SecuMain s on l.IndexCode=s.InnerCode
+              left join CT_SystemConst ct1 on ct1.LB=1266 and l.IndexType=ct1.DM
+              left join CT_SystemConst ct2 on ct2.LB=1081 and l.IndustryStandard=ct2.DM
+              left join CT_SystemConst ct3 on ct3.LB=1265 and l.WAMethod=ct3.DM
+              left join CT_SystemConst ct4 on ct4.LB=1264 and l.ComponentAdPeriod=ct4.DM
+              where s.SecuCode in",tmp)
+  re <- queryAndClose.odbc(db.jy(),qr)
+  return(re)
+}
 
