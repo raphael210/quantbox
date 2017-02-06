@@ -4,27 +4,29 @@
 \alias{bank.rotation}
 \title{bank rotation}
 \usage{
-bank.rotation(begDate, endDate = Sys.Date(), chgBar = 0.2)
+bank.rotation(begT, endT = Sys.Date() - 1, chgBar = 0.2, fee = 0.003)
 }
 \arguments{
-\item{begDate}{is strategy's begin date}
+\item{begT}{is strategy's begin date}
 
-\item{endDate}{is strategy's end date}
+\item{endT}{is strategy's end date}
 
 \item{chgBar}{is rotation's bar}
+
+\item{fee}{is trading cost}
 }
 \value{
-a list of newest bank info and strategy's historical return.
+a list of bank factorscore and strategy's historical return.
 }
 \description{
 This is a bank stocks rotation strategy.Its idea comes from
 \url{https://www.jisilu.cn/question/50176}.
 }
 \examples{
-begDate <- as.Date('2014-01-04')
-endDate <- Sys.Date()-1
+begT <- as.Date('2014-01-03')
+endT <- Sys.Date()-1
 chgBar <- 0.2
-bankport <- bank.rotation(begDate,endDate,chgBar)
+bankport <- bank.rotation(begT,endT,chgBar)
 }
 \author{
 Andrew Dow

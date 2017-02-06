@@ -157,7 +157,7 @@ lcdb.update.FF3 <- function(){
     con <- db.local()
     begT <- dbGetQuery(con,"select max(date) 'endDate' from QT_FactorScore_amtao where factorName='SMB'")[[1]]
     dbDisconnect(con)
-    begT <- trday.nearby(intdate2r(begT),by = -1)
+    begT <- trday.nearby(intdate2r(begT),by = 1)
     endT <- Sys.Date()-1
     if(begT>endT){
       return()
@@ -231,7 +231,7 @@ lcdb.update.FF3 <- function(){
     con <- db.local()
     begT <- dbGetQuery(con,"select max(date) 'endDate' from QT_FactorScore_amtao where factorName='HML'")[[1]]
     dbDisconnect(con)
-    begT <- trday.nearby(intdate2r(begT),by = -1)
+    begT <- trday.nearby(intdate2r(begT),by = 1)
     endT <- Sys.Date()-1
     if(begT>endT){
       return()
@@ -314,115 +314,29 @@ lcdb.update.FF3 <- function(){
 }
 
 
+gf.F_ROE_new <- function(TS){
 
-bank.factorscore <- function(type=c('update','build')){
-  tsInclude()
-  tsConnect()
-  if(type=='build'){
-    rebDates <- getRebDates(as.Date('2005-01-01'),as.Date('2016-06-30'),rebFreq = 'day')
-    TS <- getTS(rebDates,indexID = 'ES09440100')
-    TSF1 <- gf.PB_mrq(TS)
-    TSF1 <- na.omit(TSF1)
-    TSF1 <- TSF1[TSF1$factorscore>0,]
-    TSF1$factorName <- 'PB_mrq_'
-
-    TSF2 <- gf.F_ROE(TS)
-    TSF2 <- TSF2[,c("date","stockID","factorscore")]
-    TSF2 <- na.omit(TSF2)
-    TSF2$factorName <- 'F_ROE_1'
-    TSF <- rbind(TSF1,TSF2)
-    TSF$date <- rdate2int(TSF$date)
-    TSF <- TSF[,c("date","stockID","factorName","factorscore")]
-    con <- db.local()
-    dbWriteTable(con,'QT_FactorScore_amtao',TSF,overwrite=F,append=T,row.names=F)
-    dbDisconnect(con)
-
-  }else{
-    con <- db.local()
-    begT <- dbGetQuery(con,"select max(date) 'endDate' from QT_FactorScore_amtao where factorName='PB_mrq_'")[[1]]
-    dbDisconnect(con)
-    begT <- trday.nearby(intdate2r(begT),by = -1)
-    endT <- Sys.Date()-1
-    if(begT>endT){
-      return()
-    }
-
-    rebDates <- getRebDates(begT,endT,rebFreq = 'day')
-    TS <- getTS(rebDates,indexID = 'ES09440100')
-    TSF1 <- gf.PB_mrq(TS)
-    TSF1 <- na.omit(TSF1)
-    TSF1 <- TSF1[TSF1$factorscore>0,]
-    TSF1$factorName <- 'PB_mrq_'
-
-    TSF2 <- gf.F_ROE(TS)
-    TSF2 <- TSF2[,c("date","stockID","factorscore")]
-    TSF2 <- na.omit(TSF2)
-    TSF2$factorName <- 'F_ROE_1'
-    TSF <- rbind(TSF1,TSF2)
-    TSF$date <- rdate2int(TSF$date)
-    TSF <- TSF[,c("date","stockID","factorName","factorscore")]
-    con <- db.local()
-    dbWriteTable(con,'QT_FactorScore_amtao',TSF,overwrite=F,append=T,row.names=F)
-    dbDisconnect(con)
-  }
-
-}
-
-
-
-gf.PB_mrq_new <- function(TS,datasource=c('ts','local','quant')){
-  datasource <- match.arg(datasource)
-
-  if(datasource=='ts'){
-    funchar <- "StockPNA3_II()"
-    TSF <- TS.getTech_ts(TS,funchar)
-  }else if(datasource=='local'){
-    TSF <- gf_lcfs(TS,'F000006')
-  }else if(datasource=='quant'){
-    tmp <- brkQT(unique(TS$stockID))
-    qr <- paste("SELECT trddate 'date',code 'stockID',pbmrq 'PB_mrq_'
-                FROM fsfactor
-                where trddate>=",rdate2int(min(TS$date)),
-                " and trddate<=",rdate2int(max(TS$date)),
-                " and code in ",tmp)
-    con <- db.quant()
-    re <- sqlQuery(con,qr)
-    odbcClose(con)
-    re$date <- intdate2r(re$date)
-    TSF <- merge.x(TS,re)
-  }
-  return(TSF)
-}
-
-
-gf.F_ROE_new <- function(TS,datasource=c('local','cs')){
-  datasource <- match.arg(datasource)
-
-  if(datasource=='cs'){
-    tmp <- brkQT(substr(unique(TS$stockID),3,8))
-    qr <- paste("SELECT convert(varchar,CON_DATE,112) 'date',
-                'EQ'+STOCK_CODE 'stockID',C12 'F_ROE_1'
-                FROM CON_FORECAST_STK
-                where CON_TYPE=1 and RPT_TYPE=4 and STOCK_TYPE=1
-                and RPT_DATE=year(CON_DATE)
-                and STOCK_CODE in",tmp,
-                " and CON_DATE>=",QT(min(TS$date)),
-                " and CON_DATE<=",QT(max(TS$date)))
-    con <- db.cs()
-    re <- sqlQuery(con,qr)
-    odbcClose(con)
-    re$date <- intdate2r(re$date)
-    re <- plyr::arrange(re,date,stockID)
-    re <- reshape2::dcast(re,date~stockID,value.var = 'F_ROE_1')
-    re <- zoo::na.locf(re)
-    re <- reshape2::melt(re,id='date',variable.name='stockID',value.name = "F_ROE_1",na.rm=T)
-    re$date <- as.Date(re$date)
-    re$F_ROE_1 <- as.numeric(re$F_ROE_1)
-    TSF <- merge.x(TS,re)
-
-  }else if(datasource=='local'){
-    TSF <- gf_lcfs(TS,'F000011')
-  }
+  tmp <- brkQT(substr(unique(TS$stockID),3,8))
+  qr <- paste("SELECT convert(varchar,CON_DATE,112) 'date',
+              'EQ'+STOCK_CODE 'stockID',C12 'F_ROE_1'
+              FROM CON_FORECAST_STK
+              where CON_TYPE=1 and RPT_TYPE=4 and STOCK_TYPE=1
+              and RPT_DATE=year(CON_DATE)
+              and STOCK_CODE in",tmp,
+              " and CON_DATE>=",QT(min(TS$date)),
+              " and CON_DATE<=",QT(max(TS$date)))
+  con <- db.cs()
+  re <- sqlQuery(con,qr,stringsAsFactors=F)
+  odbcClose(con)
+  re$date <- intdate2r(re$date)
+  re <- plyr::arrange(re,date,stockID)
+  re <- reshape2::dcast(re,date~stockID,value.var = 'F_ROE_1')
+  re <- zoo::na.locf(re)
+  re <- reshape2::melt(re,id='date',variable.name='stockID',value.name = "F_ROE_1",na.rm=T)
+  re$date <- as.Date(re$date)
+  re$F_ROE_1 <- as.numeric(re$F_ROE_1)
+  TSF <- merge.x(TS,re)
+  TSF$stockID <- as.character(TSF$stockID)
   return(TSF)
 }
 
@@ -678,7 +592,7 @@ lcdb.addindex.QT_IndexTiming<- function(indexset){
 rmSuspend.nextday <- function(TS){
 
   con <- db.local()
-  TS$tmpdate <- trday.nearby(TS$date,by=-1)
+  TS$tmpdate <- trday.nearby(TS$date,by=1)
   TS$tmpdate <- rdate2int(TS$tmpdate)
   dbWriteTable(con,'yrf_tmp',TS[,c('tmpdate','stockID')],overwrite=T,append=F,row.names=F)
   qr <- "SELECT * FROM yrf_tmp y
@@ -723,7 +637,7 @@ rmNegativeEvents.AnalystDown <- function(TS){
 
 
 rmNegativeEvents.PPUnFrozen <- function(TS,bar=5){
-  TS$date_end <- trday.nearby(TS$date,-5)
+  TS$date_end <- trday.nearby(TS$date,5)
   begT <- min(TS$date)
   endT <- max(TS$date_end)
   con <- db.jy()
@@ -737,13 +651,64 @@ rmNegativeEvents.PPUnFrozen <- function(TS,bar=5){
   re <- sqlQuery(con,qr)
   odbcClose(con)
   re$date <- intdate2r(re$date)
-  re$date_from <- trday.nearby(re$date,4)
+  re$date_from <- trday.nearby(re$date,-4)
   re <- re %>% rowwise() %>%
     do(data.frame(date=getRebDates(.$date_from, .$date,'day'),
                   stockID=rep(.$stockID,5)))
   suppressWarnings(re <- dplyr::setdiff(TS[,c('date','stockID')],re))
   return(re)
 }
+
+
+#' lcfs.update.amtao
+#'
+#' @examples
+#'
+#' factorFun="gf.ILLIQ"
+#' factorPar=""
+#' factorDir=1
+#' factorID="F000018"
+#' begT = as.Date("2000-01-01")
+#' endT = Sys.Date()-1
+#' splitNbin = "month"
+#' lcfs.update.amtao()
+lcfs.update.amtao <- function(factorFun,factorPar,factorDir,factorID,begT,endT,splitNbin) {
+
+  con <- db.local()
+
+  loopT <- dbGetQuery(con,"select distinct tradingday from QT_FactorScore order by tradingday")[[1]]
+  loopT <- loopT[loopT>=rdate2int(begT) & loopT<=rdate2int(endT)]
+  loopT.L <- split(loopT,cut(intdate2r(loopT),splitNbin))
+
+  subfun <- function(Ti){
+    cat(paste(" ",min(Ti),"to",max(Ti)," ...\n"))
+    dates <- paste(Ti,collapse=",")
+    TS <- dbGetQuery(con,paste("select TradingDay as date, ID as stockID from QT_FactorScore where TradingDay in (",dates,")"))
+    TS$date <- intdate2r(TS$date)
+    TS <- plyr::arrange(TS,date,stockID)
+    TSF <- getRawFactor(TS,factorFun,factorPar)
+    TSF$date <- rdate2int(TSF$date)
+    TSF <- renameCol(TSF,src="factorscore",tgt=factorID)
+
+    for(Tij in Ti){ # update the factorscore day by day.
+      #     Tij <- Ti[1]
+      # cat(paste(" ",Tij))
+      dbWriteTable(con,"yrf_tmp",TSF[TSF$date==Tij,],overwrite=TRUE,append=FALSE,row.names=FALSE)
+      qr <- paste("UPDATE QT_FactorScore
+                SET ",factorID,"= (SELECT ",factorID," FROM yrf_tmp WHERE yrf_tmp.stockID =QT_FactorScore.ID)
+                WHERE QT_FactorScore.ID = (SELECT stockID FROM yrf_tmp WHERE yrf_tmp.stockID =QT_FactorScore.ID)
+                and QT_FactorScore.TradingDay =",Tij)
+      res <- dbSendQuery(con,qr)
+      dbClearResult(res)
+    }
+    gc()
+  }
+
+  cat(paste("Function lcfs.add: updateing factor score of",factorID,".... \n"))
+  plyr::l_ply(loopT.L, subfun, .progress = plyr::progress_text(style=3))
+  dbDisconnect(con)
+}
+
 
 
 
